@@ -4,6 +4,12 @@ export type ExportFormatMode = "passthrough" | "force_mp3";
 
 export type HardwareProfile = "standard" | "ipod" | "psp";
 
+export type ThemeMode = "dark" | "light";
+
+export type GlassTint = "clear" | "tinted";
+
+export type AppView = "library" | "review" | "settings";
+
 export type TrackStatus =
   | "pending"
   | "processing"
@@ -38,9 +44,19 @@ export interface AudioTrackItem {
   id: string;
   sourcePath: string;
   fileName: string;
+  parentFolder: string;
+  extension: string;
+  sizeBytes: number;
+  hasProtectedKeyword: boolean;
   status: TrackStatus;
   metadata?: TrackMetadata;
   reviewReason?: string;
+}
+
+export interface ScanResult {
+  tracks: AudioTrackItem[];
+  skippedCount: number;
+  scannedFolders: string[];
 }
 
 export interface PipelineConfig {

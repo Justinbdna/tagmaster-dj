@@ -4,12 +4,14 @@ interface GlassShellProps {
   children: ReactNode;
 }
 
+/**
+ * Conteneur principal iOS 26 / macOS Tahoe :
+ * Toile ambiante vivante en arrière-plan pour nourrir la réfraction du Liquid Glass.
+ */
 export function GlassShell({ children }: GlassShellProps) {
   return (
-    <div className="min-h-screen w-full px-6 py-8 text-white/95 flex items-center justify-center">
-      <div className="glass-panel w-full max-w-5xl rounded-[28px] p-8">
-        {children}
-      </div>
+    <div className="ambient-canvas relative h-screen w-screen overflow-hidden p-3.5 text-primary select-none">
+      <div className="relative z-10 flex h-full w-full gap-3.5">{children}</div>
     </div>
   );
 }

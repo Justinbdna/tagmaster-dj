@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportMode {
     Flat,
     Dynamic,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportFormatMode {
     Passthrough,
     ForceMp3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HardwareProfile {
     Standard,
@@ -22,7 +22,7 @@ pub enum HardwareProfile {
     Psp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackStatus {
     Pending,
@@ -32,7 +32,7 @@ pub enum TrackStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MetadataSource {
     AppleMusic,
@@ -58,6 +58,29 @@ pub struct TrackMetadata {
     pub artwork_url: Option<String>,
     pub is_compilation: bool,
     pub source: Option<MetadataSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTrackItem {
+    pub id: String,
+    pub source_path: String,
+    pub file_name: String,
+    pub parent_folder: String,
+    pub extension: String,
+    pub size_bytes: u64,
+    pub has_protected_keyword: bool,
+    pub status: TrackStatus,
+    pub metadata: Option<TrackMetadata>,
+    pub review_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    pub tracks: Vec<AudioTrackItem>,
+    pub skipped_count: usize,
+    pub scanned_folders: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

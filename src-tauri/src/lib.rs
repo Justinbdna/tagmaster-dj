@@ -6,6 +6,7 @@ pub mod scanner;
 pub mod tagger;
 
 use models::{HealthStatus, ScanResult};
+use tauri::Manager;
 
 #[tauri::command]
 fn health_check() -> HealthStatus {
@@ -28,6 +29,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![health_check, scan_audio_paths])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

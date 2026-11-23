@@ -2,9 +2,11 @@ import { useMemo, useState } from "react";
 import {
   FileAudio2,
   FolderOpen,
+  Loader2,
   Music,
   Search,
   ShieldAlert,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -14,6 +16,7 @@ import { formatFileSize } from "../../utils/format";
 interface TrackQueueListProps {
   tracks: AudioTrackItem[];
   onRemoveTrack: (id: string) => void;
+  onLookupTrack: (id: string) => void;
   onClearAll: () => void;
   onPickFolder: () => void;
   onPickFiles: () => void;
@@ -30,11 +33,11 @@ const STATUS_BADGE: Record<
       "border-[var(--content-border)] bg-[var(--content-card-bg)] text-secondary",
   },
   processing: {
-    label: "En cours",
+    label: "Recherche…",
     className: "border-sky-400/30 bg-sky-500/15 text-sky-400",
   },
   completed: {
-    label: "Tagué",
+    label: "Identifié",
     className: "border-emerald-400/30 bg-emerald-500/15 text-emerald-400",
   },
   needs_review: {
@@ -50,6 +53,7 @@ const STATUS_BADGE: Record<
 export function TrackQueueList({
   tracks,
   onRemoveTrack,
+  onLookupTrack,
   onClearAll,
   onPickFolder,
   onPickFiles,
@@ -74,7 +78,9 @@ export function TrackQueueList({
       const matchesQuery =
         normalized.length === 0 ||
         track.fileName.toLowerCase().includes(normalized) ||
-        track.parentFolder.toLowerCase().includes(normalized);
+        track.parentFolder.toLowerCase().includes(normalized) ||
+        (track.metadata?.title.toLowerCase().includes(normalized) ?? false) ||
+        (track.metadata?.artist.toLowerCase().includes(normalized) ?? false);
       return matchesExt && matchesQuery;
     });
   }, [tracks, query, selectedExt]);
@@ -89,7 +95,7 @@ export function TrackQueueList({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filtrer par titre ou dossier…"
+            placeholder="Filtrer par titre, artiste ou dossier…"
             className="w-full bg-transparent text-[12.5px] text-primary placeholder:text-muted focus:outline-none"
           />
           {query && (
@@ -168,13 +174,13 @@ export function TrackQueueList({
       </div>
 
       {/* Column Headers */}
-      <div className="grid grid-cols-[36px_minmax(0,1fr)_76px_84px_112px_36px] items-center gap-3 border-b border-[var(--content-divider)] px-5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+      <div className="grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_74px] items-center gap-3 border-b border-[var(--content-divider)] px-5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
         <span className="text-center">#</span>
-        <span>Fichier audio</span>
+        <span>Fichier audio &amp; aperçu métadonnées</span>
         <span>Format</span>
         <span className="text-right">Taille</span>
         <span className="text-center">Statut</span>
-        <span />
+        <span className="text-right">Actions</span>
       </div>
 
       {/* Scrollable Track List (Clean, Crisp Content Layer) */}
@@ -187,26 +193,36 @@ export function TrackQueueList({
           <ul className="flex flex-col gap-1">
             {filteredTracks.map((track, idx) => {
               const badge = STATUS_BADGE[track.status];
+              const meta = track.metadata;
               return (
                 <li
                   key={track.id}
-                  className="group grid grid-cols-[36px_minmax(0,1fr)_76px_84px_112px_36px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
+                  className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_74px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
                 >
                   <span className="text-center text-[11.5px] font-medium tabular-nums text-muted">
                     {idx + 1}
                   </span>
 
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
-                      <Music className="h-4 w-4" strokeWidth={1.85} />
-                    </div>
+                    {meta?.artworkUrl ? (
+                      <img
+                        src={meta.artworkUrl}
+                        alt={meta.album}
+                        className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
+                        <Music className="h-4 w-4" strokeWidth={1.85} />
+                      </div>
+                    )}
+
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p
                           className="truncate text-[13px] font-medium text-primary"
                           title={track.sourcePath}
                         >
-                          {track.fileName}
+                          {meta ? `${meta.artist} — ${meta.title}` : track.fileName}
                         </p>
                         {track.hasProtectedKeyword && (
                           <span
@@ -218,9 +234,29 @@ export function TrackQueueList({
                           </span>
                         )}
                       </div>
-                      <p className="truncate text-[11px] text-muted">
-                        {track.parentFolder}
-                      </p>
+
+                      {meta ? (
+                        <p className="truncate text-[11px] text-secondary">
+                          {meta.album}
+                          {meta.year ? ` (${meta.year})` : ""}
+                          {meta.genre ? ` · ${meta.genre}` : ""}
+                          {` · Album Artist : ${meta.albumArtist}`}
+                          {meta.discTotal && meta.discTotal > 1
+                            ? ` · Disque ${meta.discNumber ?? 1}/${meta.discTotal}`
+                            : ""}
+                        </p>
+                      ) : track.reviewReason ? (
+                        <p
+                          className="truncate text-[11px] text-amber-400/90"
+                          title={track.reviewReason}
+                        >
+                          {track.reviewReason}
+                        </p>
+                      ) : (
+                        <p className="truncate text-[11px] text-muted">
+                          {track.parentFolder}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -240,14 +276,31 @@ export function TrackQueueList({
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => onRemoveTrack(track.id)}
-                    aria-label={`Retirer ${track.fileName}`}
-                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-400 group-hover:opacity-100 focus:opacity-100"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onLookupTrack(track.id)}
+                      disabled={track.status === "processing"}
+                      title="Tester l'identification Apple Music US (lecture seule, sans modifier le fichier)"
+                      aria-label={`Identifier ${track.fileName} via Apple Music US`}
+                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400 transition-colors hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      {track.status === "processing" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onRemoveTrack(track.id)}
+                      aria-label={`Retirer ${track.fileName}`}
+                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted opacity-60 transition-all hover:bg-rose-500/15 hover:text-rose-400 hover:opacity-100"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </li>
               );
             })}

@@ -59,6 +59,25 @@ export interface ScanResult {
   scannedFolders: string[];
 }
 
+export interface ExistingTrackTags {
+  title?: string;
+  artist?: string;
+  album?: string;
+  tagCount: number;
+  hasDirtyTags: boolean;
+}
+
+export type LookupStatus = "matched" | "protected_version" | "not_found";
+
+export interface MetadataLookupResult {
+  status: LookupStatus;
+  queryUsed: string;
+  storefront?: string;
+  metadata?: TrackMetadata;
+  reason?: string;
+  detectedKeyword?: string;
+}
+
 export interface PipelineConfig {
   exportMode: ExportMode;
   formatMode: ExportFormatMode;

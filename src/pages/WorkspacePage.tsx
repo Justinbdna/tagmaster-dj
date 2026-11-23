@@ -109,6 +109,7 @@ export function WorkspacePage() {
                 <TrackQueueList
                   tracks={library.tracks}
                   onRemoveTrack={library.removeTrack}
+                  onLookupTrack={(id) => void library.lookupTrack(id)}
                   onClearAll={library.clearTracks}
                   onPickFolder={() => void library.pickFolder()}
                   onPickFiles={() => void library.pickFiles()}

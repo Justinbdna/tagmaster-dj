@@ -25,6 +25,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2.8.4"
 walkdir = "2.5.1"
+reqwest = { version = "0.13.5", features = ["charset", "http2", "json", "native-tls", "query", "system-proxy"], default-features = false }
+tokio = { version = "1.54.1", features = ["time", "sync", "macros", "rt"] }
+rand = "0.10.4"
+lofty = "0.25.5"
+regex = "1.13.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -42,7 +42,7 @@ pub enum MetadataSource {
     Manual,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackMetadata {
     pub title: String,
@@ -81,6 +81,35 @@ pub struct ScanResult {
     pub tracks: Vec<AudioTrackItem>,
     pub skipped_count: usize,
     pub scanned_folders: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExistingTrackTags {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub tag_count: usize,
+    pub has_dirty_tags: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LookupStatus {
+    Matched,
+    ProtectedVersion,
+    NotFound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataLookupResult {
+    pub status: LookupStatus,
+    pub query_used: String,
+    pub storefront: Option<String>,
+    pub metadata: Option<TrackMetadata>,
+    pub reason: Option<String>,
+    pub detected_keyword: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

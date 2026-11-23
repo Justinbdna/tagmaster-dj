@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   isTauriEnvironment,
+  lookupTrackMetadata,
   openAudioFilesDialog,
   openFolderDialog,
   scanAudioPaths,
@@ -204,6 +205,78 @@ export function useTrackLibrary() {
     setErrorMessage(null);
   }, []);
 
+  const lookupTrack = useCallback(
+    async (id: string) => {
+      const target = tracks.find((t) => t.id === id);
+      if (!target) return;
+      if (!isTauriEnvironment()) {
+        setErrorMessage(
+          "La recherche Apple Music US nécessite l'application desktop Tauri.",
+        );
+        return;
+      }
+
+      setErrorMessage(null);
+      setTracks((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, status: "processing", reviewReason: undefined }
+            : item,
+        ),
+      );
+
+      try {
+        const result = await lookupTrackMetadata(target.sourcePath);
+        if (result.status === "matched" && result.metadata) {
+          setTracks((prev) =>
+            prev.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: "completed",
+                    metadata: result.metadata,
+                    reviewReason: undefined,
+                  }
+                : item,
+            ),
+          );
+          setNotice(
+            `Apple Music ${result.storefront ?? "US"} : « ${result.metadata.artist} — ${result.metadata.title} » (aperçu lecture seule)`,
+          );
+        } else {
+          setTracks((prev) =>
+            prev.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    status: "needs_review",
+                    reviewReason: result.reason,
+                  }
+                : item,
+            ),
+          );
+          if (result.reason) {
+            setNotice(result.reason);
+          }
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Erreur lors de l'appel Apple Music US.";
+        setTracks((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? { ...item, status: "failed", reviewReason: message }
+              : item,
+          ),
+        );
+        setErrorMessage(message);
+      }
+    },
+    [tracks],
+  );
+
   // Native Tauri 2 Drag & Drop listener + Browser preview fallback
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -300,6 +373,7 @@ export function useTrackLibrary() {
     pickFiles,
     removeTrack,
     clearTracks,
+    lookupTrack,
     importBrowserFiles,
     browserFileInputRef,
     browserFolderInputRef,

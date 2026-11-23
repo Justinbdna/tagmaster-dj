@@ -48,21 +48,22 @@ export function FloatingActionDock({
             <div className="h-full w-0 rounded-full bg-gradient-to-r from-sky-400 to-indigo-500 transition-all duration-300" />
           </div>
           <span className="shrink-0 text-[11px] text-muted">
-            {notice ?? "0 % · En attente du pipeline Apple Music US (Bloc 2)"}
+            {notice ??
+              "Apple Music US & Tagging prêts · Export batch au Bloc 3"}
           </span>
         </div>
       </div>
 
-      {/* Right: Pipeline launch button (wired in Sprint 1 Bloc 2 & 3) */}
+      {/* Right: Pipeline launch button (wired in Sprint 1 Bloc 3 — Issues #5 & #6) */}
       <div className="relative z-10 shrink-0">
         <button
           type="button"
           disabled
-          title="Le moteur Apple Music US + Tagging ID3 sera connecté au Bloc 2 (Issues #3 & #4)"
+          title="L'export non destructif Plat/Dynamique et le traitement par lots seront connectés au Bloc 3 (Issues #5 & #6)"
           className="liquid-glass-primary flex cursor-not-allowed items-center gap-2 rounded-full px-5 py-2.5 text-[12.5px] font-semibold opacity-65"
         >
           <Sparkles className="h-4 w-4" strokeWidth={2} />
-          <span>Taguer &amp; Exporter (Bloc 2)</span>
+          <span>Taguer &amp; Exporter (Bloc 3)</span>
         </button>
       </div>
     </footer>

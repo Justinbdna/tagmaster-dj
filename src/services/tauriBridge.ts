@@ -1,7 +1,12 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { HealthStatus, ScanResult } from "../types/track";
+import type {
+  ExistingTrackTags,
+  HealthStatus,
+  MetadataLookupResult,
+  ScanResult,
+} from "../types/track";
 
 const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "flac", "wav"];
 
@@ -15,6 +20,18 @@ export async function checkBackendHealth(): Promise<HealthStatus> {
 
 export async function scanAudioPaths(paths: string[]): Promise<ScanResult> {
   return invoke<ScanResult>("scan_audio_paths", { paths });
+}
+
+export async function readTrackTags(
+  sourcePath: string,
+): Promise<ExistingTrackTags> {
+  return invoke<ExistingTrackTags>("read_track_tags", { sourcePath });
+}
+
+export async function lookupTrackMetadata(
+  sourcePath: string,
+): Promise<MetadataLookupResult> {
+  return invoke<MetadataLookupResult>("lookup_track_metadata", { sourcePath });
 }
 
 function normalizeDialogResult(result: string | string[] | null): string[] {

@@ -9,8 +9,10 @@ use std::path::PathBuf;
 
 use models::{
     BatchSummary, BatchTrackInput, ExistingTrackTags, ExportMode, HealthStatus, LookupStatus,
-    MetadataLookupResult, PipelineProgressEvent, ScanResult, TrackStatus,
+    ManualExportInput, ManualExportResult, MetadataLookupResult, MetadataSource,
+    PipelineProgressEvent, ScanResult, TrackCandidate, TrackStatus,
 };
+use tagger::rules::{RawMetadataInput, normalize_track_metadata};
 use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
@@ -121,6 +123,8 @@ async fn run_batch_pipeline(
                 metadata: item.cached_metadata.clone(),
                 exported_path: None,
                 review_reason: None,
+                query_used: None,
+                candidates: Vec::new(),
             },
         );
 
@@ -157,6 +161,8 @@ async fn run_batch_pipeline(
                             metadata: None,
                             exported_path: None,
                             review_reason: lookup.reason,
+                            query_used: Some(lookup.query_used),
+                            candidates: lookup.candidates,
                         },
                     );
                     continue;
@@ -175,6 +181,8 @@ async fn run_batch_pipeline(
                             metadata: None,
                             exported_path: None,
                             review_reason: Some(err),
+                            query_used: None,
+                            candidates: Vec::new(),
                         },
                     );
                     continue;
@@ -182,10 +190,22 @@ async fn run_batch_pipeline(
             }
         };
 
-        // 2. Téléchargement tolérant aux pannes de la pochette HD
-        let artwork = match metadata.artwork_url.as_deref() {
-            Some(url) => api::apple_music::download_artwork(url).await.ok(),
-            None => None,
+        // 2. Téléchargement tolérant aux pannes (ou lecture pochette locale validée en révision)
+        let artwork = if let Some(local_art_path) = item
+            .local_artwork_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+        {
+            tauri::async_runtime::spawn_blocking(move || tagger::load_local_artwork(&local_art_path))
+                .await
+                .ok()
+                .and_then(|res| res.ok())
+        } else if let Some(url) = metadata.artwork_url.as_deref() {
+            api::apple_music::download_artwork(url).await.ok()
+        } else {
+            None
         };
 
         // 3. Export non destructif + Table Rase + Écriture tags ID3/MP4/FLAC
@@ -222,6 +242,8 @@ async fn run_batch_pipeline(
                         metadata: Some(metadata),
                         exported_path: Some(exported_path.to_string_lossy().into_owned()),
                         review_reason: None,
+                        query_used: None,
+                        candidates: Vec::new(),
                     },
                 );
             }
@@ -239,6 +261,8 @@ async fn run_batch_pipeline(
                         metadata: Some(metadata),
                         exported_path: None,
                         review_reason: Some(err),
+                        query_used: None,
+                        candidates: Vec::new(),
                     },
                 );
             }
@@ -251,6 +275,220 @@ async fn run_batch_pipeline(
         needs_review_count,
         failed_count,
         export_directory: export_root.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+async fn search_apple_music_candidates(query: String) -> Result<Vec<TrackCandidate>, String> {
+    api::apple_music::search_candidates_freeform(&query).await
+}
+
+#[tauri::command]
+async fn export_manual_track(
+    app: tauri::AppHandle,
+    input: ManualExportInput,
+) -> Result<ManualExportResult, String> {
+    let title = input.title.trim().to_string();
+    let artist = input.artist.trim().to_string();
+    if title.is_empty() || artist.is_empty() {
+        return Err("Le titre et l'artiste sont obligatoires pour exporter.".to_string());
+    }
+
+    let export_root = resolve_export_root(&app)?;
+    std::fs::create_dir_all(&export_root).map_err(|err| {
+        format!(
+            "Impossible de créer le dossier d'export {} : {err}",
+            export_root.display()
+        )
+    })?;
+
+    let metadata = normalize_track_metadata(RawMetadataInput {
+        title,
+        artist,
+        collection_artist: input
+            .album_artist
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        album: input
+            .album
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        track_number: input.track_number,
+        track_total: input.track_total,
+        disc_number: input.disc_number,
+        disc_total: input.disc_total,
+        year: input.year,
+        genre: input
+            .genre
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        artwork_url: input
+            .artwork_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        is_compilation: input.is_compilation.unwrap_or(false),
+        source: input.source.unwrap_or(MetadataSource::Manual),
+    });
+
+    let artwork = if let Some(local_path) = input
+        .local_artwork_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+    {
+        let loaded = tauri::async_runtime::spawn_blocking(move || tagger::load_local_artwork(&local_path))
+            .await
+            .map_err(|err| format!("Erreur interne de lecture pochette : {err}"))??;
+        Some(loaded)
+    } else if let Some(url) = metadata.artwork_url.as_deref() {
+        api::apple_music::download_artwork(url).await.ok()
+    } else {
+        None
+    };
+
+    let source_path = PathBuf::from(&input.source_path);
+    let meta_clone = metadata.clone();
+    let exported_path = tauri::async_runtime::spawn_blocking(move || {
+        exporter::export_single_track(
+            &source_path,
+            &export_root,
+            input.export_mode,
+            &meta_clone,
+            artwork.as_ref(),
+        )
+    })
+    .await
+    .map_err(|err| format!("Erreur interne d'export : {err}"))??;
+
+    Ok(ManualExportResult {
+        metadata,
+        exported_path: exported_path.to_string_lossy().into_owned(),
+    })
+}
+
+/// Identification Apple Music en lot en lecture seule (aucun fichier écrit/exporté).
+#[tauri::command]
+async fn run_batch_lookup(
+    app: tauri::AppHandle,
+    tracks: Vec<BatchTrackInput>,
+) -> Result<BatchSummary, String> {
+    let total = tracks.len();
+    let mut completed_count: usize = 0;
+    let mut needs_review_count: usize = 0;
+    let mut failed_count: usize = 0;
+
+    for (idx, item) in tracks.into_iter().enumerate() {
+        let current_index = idx + 1;
+        let source_path = PathBuf::from(&item.source_path);
+        let current_file_name = source_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| item.source_path.clone());
+
+        let start_percent = ((idx * 100) / total.max(1)) as u8;
+        let _ = app.emit(
+            PIPELINE_PROGRESS_EVENT,
+            &PipelineProgressEvent {
+                track_id: item.id.clone(),
+                current_index,
+                total_tracks: total,
+                percent: start_percent,
+                current_file_name: current_file_name.clone(),
+                track_status: TrackStatus::Processing,
+                metadata: item.cached_metadata.clone(),
+                exported_path: None,
+                review_reason: None,
+                query_used: None,
+                candidates: Vec::new(),
+            },
+        );
+
+        let done_percent = ((current_index * 100) / total.max(1)) as u8;
+        let path_for_read = source_path.clone();
+        let existing = tauri::async_runtime::spawn_blocking(move || {
+            tagger::read_existing_tags(&path_for_read).unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default();
+
+        match api::apple_music::search_track(&source_path, &existing).await {
+            Ok(lookup)
+                if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
+            {
+                completed_count += 1;
+                let _ = app.emit(
+                    PIPELINE_PROGRESS_EVENT,
+                    &PipelineProgressEvent {
+                        track_id: item.id,
+                        current_index,
+                        total_tracks: total,
+                        percent: done_percent,
+                        current_file_name,
+                        track_status: TrackStatus::Completed,
+                        metadata: lookup.metadata,
+                        exported_path: None,
+                        review_reason: None,
+                        query_used: Some(lookup.query_used),
+                        candidates: Vec::new(),
+                    },
+                );
+            }
+            Ok(lookup) => {
+                needs_review_count += 1;
+                let _ = app.emit(
+                    PIPELINE_PROGRESS_EVENT,
+                    &PipelineProgressEvent {
+                        track_id: item.id,
+                        current_index,
+                        total_tracks: total,
+                        percent: done_percent,
+                        current_file_name,
+                        track_status: TrackStatus::NeedsReview,
+                        metadata: None,
+                        exported_path: None,
+                        review_reason: lookup.reason,
+                        query_used: Some(lookup.query_used),
+                        candidates: lookup.candidates,
+                    },
+                );
+            }
+            Err(err) => {
+                failed_count += 1;
+                let _ = app.emit(
+                    PIPELINE_PROGRESS_EVENT,
+                    &PipelineProgressEvent {
+                        track_id: item.id,
+                        current_index,
+                        total_tracks: total,
+                        percent: done_percent,
+                        current_file_name,
+                        track_status: TrackStatus::Failed,
+                        metadata: None,
+                        exported_path: None,
+                        review_reason: Some(err),
+                        query_used: None,
+                        candidates: Vec::new(),
+                    },
+                );
+            }
+        }
+    }
+
+    Ok(BatchSummary {
+        total,
+        completed_count,
+        needs_review_count,
+        failed_count,
+        export_directory: String::new(),
     })
 }
 
@@ -272,7 +510,10 @@ pub fn run() {
             read_track_tags,
             lookup_track_metadata,
             open_export_directory,
-            run_batch_pipeline
+            run_batch_lookup,
+            run_batch_pipeline,
+            search_apple_music_candidates,
+            export_manual_track
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -103,6 +103,25 @@ pub enum LookupStatus {
     NotFound,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackCandidate {
+    pub title: String,
+    pub artist: String,
+    pub album_artist: String,
+    pub album: String,
+    pub track_number: Option<u32>,
+    pub track_total: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub disc_total: Option<u32>,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub artwork_url: Option<String>,
+    pub is_compilation: bool,
+    pub storefront: String,
+    pub confidence_score: f32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetadataLookupResult {
@@ -110,6 +129,8 @@ pub struct MetadataLookupResult {
     pub query_used: String,
     pub storefront: Option<String>,
     pub metadata: Option<TrackMetadata>,
+    #[serde(default)]
+    pub candidates: Vec<TrackCandidate>,
     pub reason: Option<String>,
     pub detected_keyword: Option<String>,
 }
@@ -120,6 +141,8 @@ pub struct BatchTrackInput {
     pub id: String,
     pub source_path: String,
     pub cached_metadata: Option<TrackMetadata>,
+    #[serde(default)]
+    pub local_artwork_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +157,37 @@ pub struct PipelineProgressEvent {
     pub metadata: Option<TrackMetadata>,
     pub exported_path: Option<String>,
     pub review_reason: Option<String>,
+    pub query_used: Option<String>,
+    #[serde(default)]
+    pub candidates: Vec<TrackCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualExportInput {
+    pub source_path: String,
+    pub export_mode: ExportMode,
+    pub title: String,
+    pub artist: String,
+    pub album_artist: Option<String>,
+    pub album: Option<String>,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub track_number: Option<u32>,
+    pub track_total: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub disc_total: Option<u32>,
+    pub is_compilation: Option<bool>,
+    pub artwork_url: Option<String>,
+    pub local_artwork_path: Option<String>,
+    pub source: Option<MetadataSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualExportResult {
+    pub metadata: TrackMetadata,
+    pub exported_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

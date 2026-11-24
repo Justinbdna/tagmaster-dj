@@ -1,22 +1,12 @@
-import {
-  FolderPlus,
-  FolderTree,
-  Layers,
-  Moon,
-  Sun,
-} from "lucide-react";
+import { FolderTree, Layers, Moon, Sun } from "lucide-react";
 import type { AppView, ExportMode, ThemeMode } from "../../types/track";
 
 interface TopBarProps {
   activeView: AppView;
-  trackCount: number;
-  totalSizeLabel: string;
   exportMode: ExportMode;
   onChangeExportMode: (mode: ExportMode) => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
-  onPickFolder: () => void;
-  isScanning: boolean;
 }
 
 const VIEW_TITLES: Record<AppView, { title: string; subtitle: string }> = {
@@ -36,29 +26,21 @@ const VIEW_TITLES: Record<AppView, { title: string; subtitle: string }> = {
 
 export function TopBar({
   activeView,
-  trackCount,
-  totalSizeLabel,
   exportMode,
   onChangeExportMode,
   theme,
   onToggleTheme,
-  onPickFolder,
-  isScanning,
 }: TopBarProps) {
   const meta = VIEW_TITLES[activeView];
 
   return (
     <header className="liquid-glass flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[22px] px-5 py-3.5">
-      {/* Title & contextual count */}
+      {/* Title & static view hint */}
       <div className="relative z-10 min-w-0">
         <h2 className="truncate text-[17px] font-semibold tracking-tight text-primary">
           {meta.title}
         </h2>
-        <p className="truncate text-[12px] text-secondary">
-          {activeView === "library" && trackCount > 0
-            ? `${trackCount} piste${trackCount > 1 ? "s" : ""} dans la file · ${totalSizeLabel}`
-            : meta.subtitle}
-        </p>
+        <p className="truncate text-[12px] text-secondary">{meta.subtitle}</p>
       </div>
 
       {/* Interactive Liquid Glass Controls */}
@@ -116,19 +98,6 @@ export function TopBar({
             <Moon className="h-4 w-4 text-indigo-500" strokeWidth={1.9} />
           )}
         </button>
-
-        {/* Primary Folder Import Button */}
-        {activeView === "library" && (
-          <button
-            type="button"
-            onClick={onPickFolder}
-            disabled={isScanning}
-            className="liquid-glass-primary flex cursor-pointer items-center gap-2 rounded-full px-4 py-2 text-[12.5px] font-semibold disabled:cursor-wait disabled:opacity-60"
-          >
-            <FolderPlus className="h-4 w-4" strokeWidth={2} />
-            <span>{isScanning ? "Scan en cours…" : "Choisir un dossier"}</span>
-          </button>
-        )}
       </div>
     </header>
   );

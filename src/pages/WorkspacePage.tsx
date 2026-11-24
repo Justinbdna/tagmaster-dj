@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import { DragOverlay } from "../components/dropzone/DragOverlay";
 import { DropZoneCard } from "../components/dropzone/DropZoneCard";
@@ -6,21 +6,43 @@ import { GlassShell } from "../components/layout/GlassShell";
 import { Sidebar } from "../components/layout/Sidebar";
 import { TopBar } from "../components/layout/TopBar";
 import { FloatingActionDock } from "../components/progress/FloatingActionDock";
-import { ReviewPlaceholderView } from "../components/review/ReviewPlaceholderView";
+import { ReviewQueueView } from "../components/review/ReviewQueueView";
 import { SettingsView } from "../components/settings/SettingsView";
 import { TrackQueueList } from "../components/tracks/TrackQueueList";
+import {
+  ToastNotification,
+  type ToastPayload,
+} from "../components/ui/ToastNotification";
 import { useAppHealth } from "../hooks/useAppHealth";
 import { useTheme } from "../hooks/useTheme";
 import { useTrackLibrary } from "../hooks/useTrackLibrary";
-import type { AppView, ExportMode } from "../types/track";
+import type {
+  AppView,
+  ExportMode,
+  ManualExportResult,
+  TrackMetadata,
+} from "../types/track";
 
 export function WorkspacePage() {
   const [activeView, setActiveView] = useState<AppView>("library");
   const [exportMode, setExportMode] = useState<ExportMode>("dynamic");
+  const [selectedReviewTrackId, setSelectedReviewTrackId] = useState<
+    string | null
+  >(null);
+  const [toast, setToast] = useState<ToastPayload | null>(null);
 
-  const { health, isTauriRuntime } = useAppHealth();
+  const { health } = useAppHealth();
   const { theme, setTheme, toggleTheme, glassTint, setGlassTint } = useTheme();
   const library = useTrackLibrary();
+
+  const showToast = useCallback((message: string) => {
+    setToast({ id: Date.now(), message });
+  }, []);
+
+  const openTrackInReview = useCallback((trackId: string) => {
+    setSelectedReviewTrackId(trackId);
+    setActiveView("review");
+  }, []);
 
   const reviewTracks = useMemo(
     () =>
@@ -28,6 +50,72 @@ export function WorkspacePage() {
         (t) => t.status === "needs_review" || t.status === "failed",
       ),
     [library.tracks],
+  );
+
+  const editorTracks = useMemo(() => {
+    if (!selectedReviewTrackId) return reviewTracks;
+    const isInReview = reviewTracks.some((t) => t.id === selectedReviewTrackId);
+    if (isInReview) return reviewTracks;
+    const selectedFreeEdit = library.tracks.find(
+      (t) => t.id === selectedReviewTrackId,
+    );
+    return selectedFreeEdit
+      ? [selectedFreeEdit, ...reviewTracks]
+      : reviewTracks;
+  }, [library.tracks, reviewTracks, selectedReviewTrackId]);
+
+  const handleRunBatchExport = useCallback(
+    async (options?: { forceAll?: boolean }) => {
+      const summary = await library.startBatchPipeline(exportMode, options);
+      if (summary && summary.completedCount > 0) {
+        showToast(
+          `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+        );
+      }
+    },
+    [exportMode, library.startBatchPipeline, showToast],
+  );
+
+  const handleTrackValidatedFromReview = useCallback(
+    (trackId: string, metadata: TrackMetadata, localArtworkPath?: string) => {
+      const wasInReviewQueue = reviewTracks.some((t) => t.id === trackId);
+      const remainingAfter = reviewTracks.filter((t) => t.id !== trackId).length;
+      library.validateTrackFromReview(trackId, metadata, localArtworkPath);
+
+      if (!wasInReviewQueue) {
+        setSelectedReviewTrackId(null);
+        setActiveView("library");
+        showToast("Tags mis à jour — piste prête à exporter");
+      } else if (remainingAfter === 0) {
+        setSelectedReviewTrackId(null);
+        setActiveView("library");
+        showToast("File de révision terminée — pistes prêtes à exporter");
+      } else {
+        showToast("Tags validés — piste prête à exporter");
+      }
+    },
+    [library.validateTrackFromReview, reviewTracks, showToast],
+  );
+
+  const handleTrackResolvedFromReview = useCallback(
+    (trackId: string, result: ManualExportResult) => {
+      const wasInReviewQueue = reviewTracks.some((t) => t.id === trackId);
+      const remainingAfter = reviewTracks.filter((t) => t.id !== trackId).length;
+      library.resolveTrackFromReview(trackId, result);
+
+      if (wasInReviewQueue && remainingAfter === 0) {
+        setSelectedReviewTrackId(null);
+        setActiveView("library");
+        showToast("File de révision terminée — toutes les pistes sont exportées");
+      } else if (!wasInReviewQueue) {
+        setSelectedReviewTrackId(null);
+        setActiveView("library");
+        showToast("Export terminé — 1 piste exportée");
+      } else {
+        showToast("Export terminé — 1 piste exportée");
+      }
+    },
+    [library.resolveTrackFromReview, reviewTracks, showToast],
   );
 
   return (
@@ -65,9 +153,7 @@ export function WorkspacePage() {
         onSelectView={setActiveView}
         trackCount={library.tracks.length}
         reviewCount={library.reviewCount}
-        exportMode={exportMode}
         health={health}
-        isTauriRuntime={isTauriRuntime}
         onOpenExportFolder={() => void library.openExportFolder()}
       />
 
@@ -75,17 +161,10 @@ export function WorkspacePage() {
       <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3.5">
         <TopBar
           activeView={activeView}
-          trackCount={library.tracks.length}
-          totalSizeLabel={library.totalSizeLabel}
           exportMode={exportMode}
           onChangeExportMode={setExportMode}
           theme={theme}
           onToggleTheme={toggleTheme}
-          onPickFolder={() => {
-            setActiveView("library");
-            void library.pickFolder();
-          }}
-          isScanning={library.isScanning || library.isRunningBatch}
         />
 
         {library.errorMessage && (
@@ -119,6 +198,7 @@ export function WorkspacePage() {
                   tracks={library.tracks}
                   onRemoveTrack={library.removeTrack}
                   onLookupTrack={(id) => void library.lookupTrack(id)}
+                  onOpenReviewTrack={openTrackInReview}
                   onClearAll={library.clearTracks}
                   onPickFolder={() => void library.pickFolder()}
                   onPickFiles={() => void library.pickFiles()}
@@ -133,12 +213,12 @@ export function WorkspacePage() {
                   exportMode={exportMode}
                   notice={library.notice}
                   isRunningBatch={library.isRunningBatch}
+                  batchAction={library.batchAction}
                   batchProgress={library.batchProgress}
-                  onRunBatch={() => void library.startBatchPipeline(exportMode)}
+                  onRunLookup={() => void library.startBatchLookup()}
+                  onRunBatch={() => void handleRunBatchExport()}
                   onForceRunBatch={() =>
-                    void library.startBatchPipeline(exportMode, {
-                      forceAll: true,
-                    })
+                    void handleRunBatchExport({ forceAll: true })
                   }
                   onOpenExportFolder={() => void library.openExportFolder()}
                 />
@@ -148,7 +228,18 @@ export function WorkspacePage() {
         )}
 
         {activeView === "review" && (
-          <ReviewPlaceholderView reviewTracks={reviewTracks} />
+          <ReviewQueueView
+            reviewTracks={editorTracks}
+            selectedTrackId={selectedReviewTrackId}
+            onSelectTrack={setSelectedReviewTrackId}
+            exportMode={exportMode}
+            onTrackValidated={handleTrackValidatedFromReview}
+            onTrackResolved={handleTrackResolvedFromReview}
+            onBackToLibrary={() => {
+              setSelectedReviewTrackId(null);
+              setActiveView("library");
+            }}
+          />
         )}
 
         {activeView === "settings" && (
@@ -162,6 +253,8 @@ export function WorkspacePage() {
           />
         )}
       </main>
+
+      <ToastNotification toast={toast} onClose={() => setToast(null)} />
     </GlassShell>
   );
 }

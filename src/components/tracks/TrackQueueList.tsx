@@ -4,12 +4,14 @@ import {
   FolderOpen,
   Loader2,
   Music,
+  Pencil,
   Search,
   ShieldAlert,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
+import { toLocalAssetUrl } from "../../services/tauriBridge";
 import type { AudioTrackItem, TrackStatus } from "../../types/track";
 import { formatFileSize } from "../../utils/format";
 
@@ -17,6 +19,7 @@ interface TrackQueueListProps {
   tracks: AudioTrackItem[];
   onRemoveTrack: (id: string) => void;
   onLookupTrack: (id: string) => void;
+  onOpenReviewTrack: (id: string) => void;
   onClearAll: () => void;
   onPickFolder: () => void;
   onPickFiles: () => void;
@@ -55,6 +58,7 @@ export function TrackQueueList({
   tracks,
   onRemoveTrack,
   onLookupTrack,
+  onOpenReviewTrack,
   onClearAll,
   onPickFolder,
   onPickFiles,
@@ -178,7 +182,7 @@ export function TrackQueueList({
       </div>
 
       {/* Column Headers */}
-      <div className="grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_74px] items-center gap-3 border-b border-[var(--content-divider)] px-5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+      <div className="grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_96px] items-center gap-3 border-b border-[var(--content-divider)] px-5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
         <span className="text-center">#</span>
         <span>Fichier audio &amp; aperçu métadonnées</span>
         <span>Format</span>
@@ -200,28 +204,35 @@ export function TrackQueueList({
                 track.status === "completed" && track.exportedPath
                   ? { label: "Exporté", className: STATUS_BADGE.completed.className }
                   : STATUS_BADGE[track.status];
+              const isReviewable =
+                track.status === "needs_review" || track.status === "failed";
               const meta = track.metadata;
               return (
                 <li
                   key={track.id}
-                  className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_74px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
+                  className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_96px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
                 >
                   <span className="text-center text-[11.5px] font-medium tabular-nums text-muted">
                     {idx + 1}
                   </span>
 
                   <div className="flex min-w-0 items-center gap-3">
-                    {meta?.artworkUrl ? (
-                      <img
-                        src={meta.artworkUrl}
-                        alt={meta.album}
-                        className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
-                        <Music className="h-4 w-4" strokeWidth={1.85} />
-                      </div>
-                    )}
+                    {(() => {
+                      const artworkSrc = track.localArtworkPath
+                        ? toLocalAssetUrl(track.localArtworkPath)
+                        : meta?.artworkUrl;
+                      return artworkSrc ? (
+                        <img
+                          src={artworkSrc}
+                          alt={meta?.album ?? track.fileName}
+                          className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
+                          <Music className="h-4 w-4" strokeWidth={1.85} />
+                        </div>
+                      );
+                    })()}
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -276,15 +287,41 @@ export function TrackQueueList({
                   </span>
 
                   <div className="flex justify-center">
-                    <span
-                      title={track.exportedPath ?? track.reviewReason}
-                      className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
-                    >
-                      {badge.label}
-                    </span>
+                    {isReviewable ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenReviewTrack(track.id)}
+                        title="Ouvrir dans la File de révision"
+                        className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold transition-transform hover:scale-105 ${badge.className}`}
+                      >
+                        {badge.label}
+                      </button>
+                    ) : (
+                      <span
+                        title={track.exportedPath ?? track.reviewReason}
+                        className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
+                      >
+                        {badge.label}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpenReviewTrack(track.id)}
+                      disabled={isRunningBatch || track.status === "processing"}
+                      title="Éditer les métadonnées ou rechercher une autre version"
+                      aria-label={`Éditer ${track.fileName}`}
+                      className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        isReviewable
+                          ? "text-amber-400 hover:bg-amber-500/20"
+                          : "text-secondary hover:bg-white/10 hover:text-primary"
+                      }`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => onLookupTrack(track.id)}

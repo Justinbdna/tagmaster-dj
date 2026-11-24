@@ -5,6 +5,7 @@ import {
   openAudioFilesDialog,
   openExportDirectory,
   openFolderDialog,
+  runBatchLookup,
   runBatchPipeline,
   scanAudioPaths,
   subscribeToPipelineProgress,
@@ -12,10 +13,13 @@ import {
 } from "../services/tauriBridge";
 import type {
   AudioTrackItem,
+  BatchSummary,
   BatchTrackInput,
   ExportMode,
+  ManualExportResult,
   PipelineProgressEvent,
   QueueStats,
+  TrackMetadata,
 } from "../types/track";
 import { formatFileSize } from "../utils/format";
 
@@ -60,7 +64,10 @@ function buildBrowserTrack(file: File): AudioTrackItem | null {
 export function useTrackLibrary() {
   const [tracks, setTracks] = useState<AudioTrackItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [isRunningBatch, setIsRunningBatch] = useState(false);
+  const [batchAction, setBatchAction] = useState<"lookup" | "export" | null>(
+    null,
+  );
+  const isRunningBatch = batchAction !== null;
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [batchProgress, setBatchProgress] =
     useState<PipelineProgressEvent | null>(null);
@@ -253,6 +260,8 @@ export function useTrackLibrary() {
                     status: "completed",
                     metadata: result.metadata,
                     reviewReason: undefined,
+                    candidates: undefined,
+                    lastQueryUsed: result.queryUsed,
                   }
                 : item,
             ),
@@ -268,6 +277,8 @@ export function useTrackLibrary() {
                     ...item,
                     status: "needs_review",
                     reviewReason: result.reason,
+                    candidates: result.candidates ?? [],
+                    lastQueryUsed: result.queryUsed,
                   }
                 : item,
             ),
@@ -294,27 +305,97 @@ export function useTrackLibrary() {
     [tracks],
   );
 
+  const startBatchLookup = useCallback(async () => {
+    if (isRunningBatch || tracks.length === 0) return;
+
+    if (!isTauriEnvironment()) {
+      setErrorMessage(
+        "L'identification Apple Music nécessite l'application desktop Tauri.",
+      );
+      return;
+    }
+
+    const targetTracks = tracks.filter(
+      (t) => t.status === "pending" || t.status === "failed",
+    );
+    if (targetTracks.length === 0) {
+      setNotice("Toutes les pistes en attente ont déjà été analysées.");
+      return;
+    }
+
+    const inputs: BatchTrackInput[] = targetTracks.map((t) => ({
+      id: t.id,
+      sourcePath: t.sourcePath,
+    }));
+
+    setErrorMessage(null);
+    setBatchAction("lookup");
+    setBatchProgress(null);
+
+    try {
+      const summary = await runBatchLookup(inputs);
+      const parts: string[] = [];
+      if (summary.completedCount > 0) {
+        parts.push(
+          `${summary.completedCount} identifiée${summary.completedCount > 1 ? "s" : ""}`,
+        );
+      }
+      if (summary.needsReviewCount > 0) {
+        parts.push(`${summary.needsReviewCount} à réviser`);
+      }
+      if (summary.failedCount > 0) {
+        parts.push(
+          `${summary.failedCount} erreur${summary.failedCount > 1 ? "s" : ""}`,
+        );
+      }
+      setNotice(
+        parts.length > 0
+          ? `Identification terminée : ${parts.join(" · ")}`
+          : "Identification terminée",
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Erreur pendant l'identification par lots.";
+      setErrorMessage(message);
+    } finally {
+      setBatchAction(null);
+    }
+  }, [isRunningBatch, tracks]);
+
   const startBatchPipeline = useCallback(
-    async (exportMode: ExportMode, options?: { forceAll?: boolean }) => {
-      if (isRunningBatch || tracks.length === 0) return;
+    async (
+      exportMode: ExportMode,
+      options?: { forceAll?: boolean },
+    ): Promise<BatchSummary | null> => {
+      if (isRunningBatch || tracks.length === 0) return null;
 
       if (!isTauriEnvironment()) {
         setErrorMessage(
           "L'export non destructif nécessite l'application desktop Tauri.",
         );
-        return;
+        return null;
       }
 
       const forceAll = options?.forceAll ?? false;
+      const identifiedTracks = tracks.filter(
+        (t) => t.status === "completed" && !t.exportedPath,
+      );
+      const pendingOrFailed = tracks.filter(
+        (t) => !t.exportedPath && t.status !== "needs_review",
+      );
       const targetTracks = forceAll
         ? tracks
-        : tracks.filter((t) => !t.exportedPath && t.status !== "needs_review");
+        : identifiedTracks.length > 0
+          ? identifiedTracks
+          : pendingOrFailed;
 
       if (targetTracks.length === 0) {
         setNotice(
-          "Toutes les pistes éligibles sont déjà traitées — utilisez « Tout relancer » ou l'icône ✨ individuelle.",
+          "Aucune piste prête à exporter — utilisez « Tout relancer » pour ré-exporter.",
         );
-        return;
+        return null;
       }
 
       if (forceAll) {
@@ -340,10 +421,11 @@ export function useTrackLibrary() {
           t.status === "needs_review" || t.status === "failed"
             ? undefined
             : t.metadata,
+        localArtworkPath: t.localArtworkPath,
       }));
 
       setErrorMessage(null);
-      setIsRunningBatch(true);
+      setBatchAction("export");
       setBatchProgress(null);
 
       try {
@@ -361,14 +443,16 @@ export function useTrackLibrary() {
           );
         }
         setNotice(`Lot terminé : ${parts.join(" · ")}`);
+        return summary;
       } catch (err) {
         const message =
           err instanceof Error
             ? err.message
             : "Erreur pendant le traitement par lots.";
         setErrorMessage(message);
+        return null;
       } finally {
-        setIsRunningBatch(false);
+        setBatchAction(null);
       }
     },
     [isRunningBatch, tracks],
@@ -395,6 +479,56 @@ export function useTrackLibrary() {
     }
   }, []);
 
+  const validateTrackFromReview = useCallback(
+    (trackId: string, metadata: TrackMetadata, localArtworkPath?: string) => {
+      setErrorMessage(null);
+      setTracks((prev) =>
+        prev.map((item) =>
+          item.id === trackId
+            ? {
+                ...item,
+                status: "completed",
+                metadata,
+                localArtworkPath: localArtworkPath || undefined,
+                exportedPath: undefined,
+                reviewReason: undefined,
+                candidates: undefined,
+              }
+            : item,
+        ),
+      );
+      setNotice(
+        `Tags validés (prêt pour export) : « ${metadata.artist} — ${metadata.title} »`,
+      );
+    },
+    [],
+  );
+
+  const resolveTrackFromReview = useCallback(
+    (trackId: string, result: ManualExportResult) => {
+      setErrorMessage(null);
+      setTracks((prev) =>
+        prev.map((item) =>
+          item.id === trackId
+            ? {
+                ...item,
+                status: "completed",
+                metadata: result.metadata,
+                exportedPath: result.exportedPath,
+                localArtworkPath: undefined,
+                reviewReason: undefined,
+                candidates: undefined,
+              }
+            : item,
+        ),
+      );
+      setNotice(
+        `Exporté depuis la File de révision : « ${result.metadata.artist} — ${result.metadata.title} »`,
+      );
+    },
+    [],
+  );
+
   // Listen to real-time pipeline progress events from Rust
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -406,7 +540,7 @@ export function useTrackLibrary() {
       setTracks((prev) =>
         prev.map((item) => {
           if (item.id !== event.trackId) return item;
-          const clearReviewReason =
+          const clearReview =
             event.trackStatus === "processing" ||
             event.trackStatus === "completed";
           return {
@@ -414,7 +548,13 @@ export function useTrackLibrary() {
             status: event.trackStatus,
             metadata: event.metadata ?? item.metadata,
             exportedPath: event.exportedPath ?? item.exportedPath,
-            reviewReason: clearReviewReason ? undefined : event.reviewReason,
+            reviewReason: clearReview ? undefined : event.reviewReason,
+            candidates: clearReview
+              ? undefined
+              : event.candidates && event.candidates.length > 0
+                ? event.candidates
+                : item.candidates,
+            lastQueryUsed: event.queryUsed ?? item.lastQueryUsed,
           };
         }),
       );
@@ -510,44 +650,47 @@ export function useTrackLibrary() {
   );
 
   const queueStats = useMemo<QueueStats>(() => {
+    let pendingCount = 0;
+    let identifiedCount = 0;
     let exportedCount = 0;
     let needsReviewCount = 0;
     let failedCount = 0;
     let processingCount = 0;
-    let pendingCount = 0;
-    let eligibleToExportCount = 0;
+    let identifiableCount = 0;
 
     for (const item of tracks) {
       if (item.status === "completed" && item.exportedPath) {
         exportedCount += 1;
+      } else if (item.status === "completed") {
+        identifiedCount += 1;
       } else if (item.status === "needs_review") {
         needsReviewCount += 1;
       } else if (item.status === "failed") {
         failedCount += 1;
       } else if (item.status === "processing") {
         processingCount += 1;
-        pendingCount += 1;
       } else {
         pendingCount += 1;
       }
 
-      if (
-        !item.exportedPath &&
-        item.status !== "needs_review" &&
-        item.status !== "processing"
-      ) {
-        eligibleToExportCount += 1;
+      if (item.status === "pending" || item.status === "failed") {
+        identifiableCount += 1;
       }
     }
 
+    const exportableCount =
+      identifiedCount > 0 ? identifiedCount : identifiableCount;
+
     return {
       totalCount: tracks.length,
+      pendingCount,
+      identifiedCount,
       exportedCount,
       needsReviewCount,
       failedCount,
       processingCount,
-      pendingCount,
-      eligibleToExportCount,
+      identifiableCount,
+      exportableCount,
     };
   }, [tracks]);
 
@@ -558,6 +701,7 @@ export function useTrackLibrary() {
     queueStats,
     isScanning,
     isRunningBatch,
+    batchAction,
     isDraggingOver,
     batchProgress,
     notice,
@@ -571,8 +715,11 @@ export function useTrackLibrary() {
     removeTrack,
     clearTracks,
     lookupTrack,
+    startBatchLookup,
     startBatchPipeline,
     openExportFolder,
+    validateTrackFromReview,
+    resolveTrackFromReview,
     importBrowserFiles,
     browserFileInputRef,
     browserFolderInputRef,

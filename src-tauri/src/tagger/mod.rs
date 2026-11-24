@@ -170,6 +170,8 @@ pub fn write_clean_tags(
     {
         let mime = if art.mime_type.contains("png") {
             MimeType::Png
+        } else if art.mime_type.contains("webp") {
+            MimeType::Unknown("image/webp".to_string())
         } else {
             MimeType::Jpeg
         };
@@ -188,6 +190,45 @@ pub fn write_clean_tags(
                 target_path.display()
             )
         })
+}
+
+/// Charge une pochette locale (`.jpg`, `.jpeg`, `.png`, `.webp`) sélectionnée manuellement.
+pub fn load_local_artwork(path: &Path) -> Result<DownloadedArtwork, String> {
+    if !path.is_file() {
+        return Err(format!(
+            "Fichier pochette introuvable : {}",
+            path.display()
+        ));
+    }
+
+    let bytes = std::fs::read(path).map_err(|err| {
+        format!(
+            "Impossible de lire la pochette locale {} : {err}",
+            path.display()
+        )
+    })?;
+
+    if bytes.is_empty() {
+        return Err(format!("La pochette locale {} est vide.", path.display()));
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let mime_type = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) || ext == "png" {
+        "image/png".to_string()
+    } else if (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+        || ext == "webp"
+    {
+        "image/webp".to_string()
+    } else {
+        "image/jpeg".to_string()
+    };
+
+    Ok(DownloadedArtwork { bytes, mime_type })
 }
 
 #[cfg(test)]

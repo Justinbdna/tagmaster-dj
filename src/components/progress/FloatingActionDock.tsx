@@ -1,4 +1,10 @@
-import { FolderOpen, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import {
+  FolderOpen,
+  Loader2,
+  RotateCcw,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 import type {
   ExportMode,
   PipelineProgressEvent,
@@ -12,7 +18,9 @@ interface FloatingActionDockProps {
   exportMode: ExportMode;
   notice: string | null;
   isRunningBatch: boolean;
+  batchAction: "lookup" | "export" | null;
   batchProgress: PipelineProgressEvent | null;
+  onRunLookup: () => void;
   onRunBatch: () => void;
   onForceRunBatch: () => void;
   onOpenExportFolder: () => void;
@@ -25,18 +33,23 @@ export function FloatingActionDock({
   exportMode,
   notice,
   isRunningBatch,
+  batchAction,
   batchProgress,
+  onRunLookup,
   onRunBatch,
   onForceRunBatch,
   onOpenExportFolder,
 }: FloatingActionDockProps) {
   const resolvedCount =
+    queueStats.identifiedCount +
     queueStats.exportedCount +
     queueStats.needsReviewCount +
     queueStats.failedCount;
   const hasAnyProcessed = resolvedCount > 0;
-  const isAllSettled =
-    hasAnyProcessed && queueStats.pendingCount === 0 && !isRunningBatch;
+  const isAllExported =
+    queueStats.totalCount > 0 &&
+    queueStats.exportedCount === queueStats.totalCount &&
+    !isRunningBatch;
 
   const progressPercent = isRunningBatch
     ? (batchProgress?.percent ?? 0)
@@ -46,13 +59,22 @@ export function FloatingActionDock({
 
   let progressLabel: string;
   if (isRunningBatch && batchProgress) {
-    progressLabel = `En cours (${batchProgress.currentIndex} / ${batchProgress.totalTracks} · ${batchProgress.percent} %) — ${batchProgress.currentFileName}`;
+    const verb = batchAction === "lookup" ? "Identification" : "Export";
+    progressLabel = `${verb} (${batchProgress.currentIndex} / ${batchProgress.totalTracks} · ${batchProgress.percent} %) — ${batchProgress.currentFileName}`;
   } else if (isRunningBatch) {
-    progressLabel = "Préparation du lot en cours…";
+    progressLabel =
+      batchAction === "lookup"
+        ? "Identification en cours…"
+        : "Préparation de l'export…";
   } else if (hasAnyProcessed) {
     const parts: string[] = [];
     if (queueStats.pendingCount > 0) {
       parts.push(`${queueStats.pendingCount} en attente`);
+    }
+    if (queueStats.identifiedCount > 0) {
+      parts.push(
+        `${queueStats.identifiedCount} identifiée${queueStats.identifiedCount > 1 ? "s" : ""}`,
+      );
     }
     if (queueStats.exportedCount > 0) {
       parts.push(
@@ -67,23 +89,19 @@ export function FloatingActionDock({
         `${queueStats.failedCount} erreur${queueStats.failedCount > 1 ? "s" : ""}`,
       );
     }
-    progressLabel =
-      queueStats.pendingCount === 0
-        ? `Terminé : ${parts.join(" · ")}`
-        : parts.join(" · ");
+    progressLabel = parts.join(" · ");
   } else {
     progressLabel =
-      notice ?? "Prêt à nettoyer, tagger et exporter sans modifier les originaux";
+      notice ?? "Prêt à identifier puis exporter sans modifier les originaux";
   }
 
   return (
     <footer className="liquid-glass flex shrink-0 flex-wrap items-center justify-between gap-4 rounded-[22px] px-5 py-3.5">
-      {/* Left: Queue metrics & real-time progress bar */}
+      {/* Left: Single-source queue metrics & real-time progress bar */}
       <div className="relative z-10 min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-medium text-primary">
           <span className="tabular-nums">
-            {queueStats.totalCount} piste{queueStats.totalCount > 1 ? "s" : ""}{" "}
-            dans la file
+            {queueStats.totalCount} piste{queueStats.totalCount > 1 ? "s" : ""}
           </span>
           <span className="text-muted">·</span>
           <span className="tabular-nums text-secondary">{totalSizeLabel}</span>
@@ -107,7 +125,7 @@ export function FloatingActionDock({
           <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-white/10">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
-                isAllSettled
+                isAllExported
                   ? "bg-gradient-to-r from-emerald-400 to-sky-400"
                   : "bg-gradient-to-r from-sky-400 to-blue-500"
               }`}
@@ -123,58 +141,69 @@ export function FloatingActionDock({
         </div>
       </div>
 
-      {/* Right: Secondary open export / force rerun + Primary launch batch */}
-      <div className="relative z-10 flex shrink-0 items-center gap-2.5">
+      {/* Right: Folder icon + Reset icon + Identifier (read-only) + Exporter */}
+      <div className="relative z-10 flex shrink-0 items-center gap-2">
         <button
           type="button"
           onClick={onOpenExportFolder}
           title="Ouvrir le dossier Documents/Tagmaster_DJ_Export"
-          className="liquid-glass-pill flex cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 text-[12.5px] font-medium text-primary"
+          aria-label="Ouvrir le dossier d'export"
+          className="liquid-glass-pill flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-secondary hover:text-primary"
         >
           <FolderOpen className="h-4 w-4 text-sky-400" strokeWidth={1.9} />
-          <span>Ouvrir Export</span>
         </button>
 
-        {!isRunningBatch && hasAnyProcessed && (
-          <button
-            type="button"
-            onClick={onForceRunBatch}
-            title="Relancer toutes les pistes dans le mode d'export actuel"
-            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-2.5 text-[12px] font-medium text-primary"
-          >
-            <RotateCcw className="h-3.5 w-3.5 text-secondary" strokeWidth={1.9} />
-            <span>Tout relancer</span>
-          </button>
-        )}
+        {!isRunningBatch &&
+          (queueStats.exportedCount > 0 ||
+            queueStats.needsReviewCount > 0 ||
+            queueStats.failedCount > 0) && (
+            <button
+              type="button"
+              onClick={onForceRunBatch}
+              title="Tout relancer dans le mode d'export actuel"
+              aria-label="Tout relancer"
+              className="liquid-glass-pill flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-secondary hover:text-primary"
+            >
+              <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />
+            </button>
+          )}
+
+        <button
+          type="button"
+          onClick={onRunLookup}
+          disabled={isRunningBatch || queueStats.identifiableCount === 0}
+          title="Identifier les pistes en attente via Apple Music (lecture seule, sans exporter)"
+          className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {isRunningBatch && batchAction === "lookup" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5 text-sky-400" strokeWidth={1.9} />
+          )}
+          <span>
+            {queueStats.identifiableCount > 0
+              ? `Identifier (${queueStats.identifiableCount})`
+              : "Identifier"}
+          </span>
+        </button>
 
         <button
           type="button"
           onClick={onRunBatch}
-          disabled={isRunningBatch || queueStats.eligibleToExportCount === 0}
-          title="Lancer l'identification Apple Music (US / UK / FR), la Table Rase et l'export sécurisé"
-          className="liquid-glass-primary flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isRunningBatch || queueStats.exportableCount === 0}
+          title="Exporter les pistes identifiées (ou identifier puis exporter) vers Tagmaster_DJ_Export"
+          className="liquid-glass-primary flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-55"
         >
-          {isRunningBatch ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-              <span className="tabular-nums">
-                Traitement{" "}
-                {batchProgress
-                  ? `${batchProgress.currentIndex} / ${batchProgress.totalTracks}`
-                  : "…"}
-              </span>
-            </>
+          {isRunningBatch && batchAction === "export" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
           ) : (
-            <>
-              <Sparkles className="h-4 w-4" strokeWidth={2} />
-              <span>
-                {queueStats.eligibleToExportCount > 0 &&
-                queueStats.eligibleToExportCount < queueStats.totalCount
-                  ? `Taguer & Exporter (${queueStats.eligibleToExportCount})`
-                  : "Taguer & Exporter"}
-              </span>
-            </>
+            <Upload className="h-3.5 w-3.5" strokeWidth={2} />
           )}
+          <span>
+            {queueStats.exportableCount > 0
+              ? `Exporter (${queueStats.exportableCount})`
+              : "Exporter"}
+          </span>
         </button>
       </div>
     </footer>

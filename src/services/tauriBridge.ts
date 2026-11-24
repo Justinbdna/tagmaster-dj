@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -8,16 +8,24 @@ import type {
   ExistingTrackTags,
   ExportMode,
   HealthStatus,
+  ManualExportInput,
+  ManualExportResult,
   MetadataLookupResult,
   PipelineProgressEvent,
   ScanResult,
+  TrackCandidate,
 } from "../types/track";
 
 const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "flac", "wav"];
+const ARTWORK_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
 const PIPELINE_PROGRESS_EVENT = "pipeline://progress";
 
 export function isTauriEnvironment(): boolean {
   return isTauri();
+}
+
+export function toLocalAssetUrl(filePath: string): string {
+  return isTauri() ? convertFileSrc(filePath) : filePath;
 }
 
 export async function checkBackendHealth(): Promise<HealthStatus> {
@@ -40,6 +48,12 @@ export async function lookupTrackMetadata(
   return invoke<MetadataLookupResult>("lookup_track_metadata", { sourcePath });
 }
 
+export async function runBatchLookup(
+  tracks: BatchTrackInput[],
+): Promise<BatchSummary> {
+  return invoke<BatchSummary>("run_batch_lookup", { tracks });
+}
+
 export async function runBatchPipeline(
   tracks: BatchTrackInput[],
   exportMode: ExportMode,
@@ -49,6 +63,34 @@ export async function runBatchPipeline(
 
 export async function openExportDirectory(): Promise<string> {
   return invoke<string>("open_export_directory");
+}
+
+export async function searchAppleMusicCandidates(
+  query: string,
+): Promise<TrackCandidate[]> {
+  return invoke<TrackCandidate[]>("search_apple_music_candidates", { query });
+}
+
+export async function exportManualTrack(
+  input: ManualExportInput,
+): Promise<ManualExportResult> {
+  return invoke<ManualExportResult>("export_manual_track", { input });
+}
+
+export async function openArtworkFileDialog(): Promise<string | null> {
+  const result = await open({
+    directory: false,
+    multiple: false,
+    title: "Choisir une pochette locale (JPG, PNG, WEBP)",
+    filters: [
+      {
+        name: "Images (JPG, JPEG, PNG, WEBP)",
+        extensions: ARTWORK_EXTENSIONS,
+      },
+    ],
+  });
+  const normalized = normalizeDialogResult(result);
+  return normalized[0] ?? null;
 }
 
 export async function subscribeToPipelineProgress(

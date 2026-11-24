@@ -221,12 +221,89 @@ pub fn normalize_for_match(input: &str) -> String {
         .join(" ")
 }
 
-/// Nettoie un libellé de piste (titre ou nom sans extension) en supprimant numérotation
-/// et mentions parasites (`Official Audio`, `HD`, `Lyrics`) sans toucher aux mots-clés protégés.
+const MUSICAL_NUMBER_QUALIFIERS: &[&str] = &[
+    "pt", "part", "vol", "v", "ver", "version", "no", "n", "cd", "disc", "disk", "act", "chapter",
+    "remix", "mix", "edit", "ep",
+];
+
+fn copy_word_suffix_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\s*(?:[-–—]\s*)?(?:copy|copie)(?:\s*\d{1,2})?\s*$")
+            .expect("valid copy suffix regex")
+    })
+}
+
+fn paren_copy_suffix_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\s*\(\d{1,2}\)\s*$").expect("valid paren copy suffix regex"))
+}
+
+fn double_underscore_copy_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"__+\d{1,2}\s*$").expect("valid double underscore copy regex"))
+}
+
+fn single_underscore_copy_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"_\d{1,2}\s*$").expect("valid single underscore copy regex"))
+}
+
+/// Supprime les suffixes techniques de doublons en fin de libellé (`__2`, `_1`, `(1)`,
+/// `(2)`, ` - Copy`, ` copie`) tout en préservant les mentions musicales légitimes (`pt. 2`,
+/// `Part 2`, `Vol. 2`, `v2`, `Remix 2`, `Chulo_pt_2`).
+pub fn strip_duplicate_copy_suffix(input: &str) -> String {
+    let mut current = input.trim_end().to_string();
+
+    loop {
+        let mut next = current.clone();
+
+        if let Some(m) = copy_word_suffix_re().find(&next) {
+            let candidate = next[..m.start()].trim_end();
+            if !candidate.is_empty() {
+                next = candidate.to_string();
+            }
+        } else if let Some(m) = paren_copy_suffix_re().find(&next) {
+            let candidate = next[..m.start()].trim_end();
+            if !candidate.is_empty() {
+                next = candidate.to_string();
+            }
+        } else if let Some(m) = double_underscore_copy_re().find(&next) {
+            let candidate = next[..m.start()].trim_end();
+            if !candidate.is_empty() {
+                next = candidate.to_string();
+            }
+        } else if let Some(m) = single_underscore_copy_re().find(&next) {
+            let prefix = next[..m.start()].trim_end();
+            let prev_word = prefix
+                .rsplit(|c: char| c.is_whitespace() || matches!(c, '_' | '-' | '/' | '(' | '['))
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('.')
+                .to_ascii_lowercase();
+
+            if !prefix.is_empty() && !MUSICAL_NUMBER_QUALIFIERS.contains(&prev_word.as_str()) {
+                next = prefix.to_string();
+            }
+        }
+
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+
+    current
+}
+
+/// Nettoie un libellé de piste (titre ou nom sans extension) en supprimant numérotation,
+/// suffixes de doublons (`__2`, `(1)`, ` - Copy`) et mentions parasites (`Official Audio`, `HD`, `Lyrics`)
+/// sans toucher aux mots-clés protégés ni aux mentions musicales (`pt. 2`, `Vol. 2`, `v2`).
 pub fn clean_track_label(raw: &str) -> String {
     let normalized = normalize_apostrophes(raw);
     let without_noise = noise_brackets_re().replace_all(&normalized, " ");
-    let without_underscores = without_noise.replace('_', " ");
+    let without_copy = strip_duplicate_copy_suffix(&without_noise);
+    let without_underscores = without_copy.replace('_', " ");
     let without_prefix = leading_track_num_re().replace(&without_underscores, "");
     let cleaned = collapse_spaces(&without_prefix);
     if cleaned.is_empty() {
@@ -245,7 +322,7 @@ pub fn clean_filename_stem(file_name: &str) -> String {
     clean_track_label(stem)
 }
 
-fn split_artist_title(input: &str) -> Option<(String, String)> {
+pub fn split_artist_title(input: &str) -> Option<(String, String)> {
     for sep in [" - ", " – ", " — "] {
         if let Some((left, right)) = input.split_once(sep) {
             let artist = collapse_spaces(left);
@@ -845,5 +922,47 @@ mod tests {
         assert_eq!(normalize_genre_to_english("R&B / Soul"), "R&B/Soul");
         assert_eq!(normalize_genre_to_english("Afro\u{00a0}pop"), "Afro-Pop");
         assert_eq!(normalize_genre_to_english("Urbano latino"), "Urbano latino");
+    }
+
+    #[test]
+    fn strips_duplicate_copy_suffixes_while_preserving_musical_numbers() {
+        let nuevayol = build_search_query(
+            Path::new("/Users/jujutravail/Downloads/Bad Bunny - NUEVAYoL__2.mp3"),
+            &ExistingTrackTags::default(),
+        );
+        assert_eq!(nuevayol.artist_hint.as_deref(), Some("Bad Bunny"));
+        assert_eq!(nuevayol.title_hint, "NUEVAYoL");
+        assert_eq!(nuevayol.search_term, "Bad Bunny NUEVAYoL");
+
+        for sample in [
+            "Bad Bunny - NUEVAYoL__3.mp3",
+            "Bad Bunny - NUEVAYoL_1.mp3",
+            "Bad Bunny - NUEVAYoL_2.mp3",
+            "Bad Bunny - NUEVAYoL (1).mp3",
+            "Bad Bunny - NUEVAYoL (2).mp3",
+            "Bad Bunny - NUEVAYoL - Copy.mp3",
+            "Bad Bunny - NUEVAYoL copie.mp3",
+            "Bad Bunny - NUEVAYoL__2 (Official Audio).mp3",
+        ] {
+            assert_eq!(
+                clean_filename_stem(sample),
+                "Bad Bunny - NUEVAYoL",
+                "failed on {sample}"
+            );
+        }
+
+        assert_eq!(clean_filename_stem("Bad Gyal - Chulo pt.2.mp3"), "Bad Gyal - Chulo pt.2");
+        assert_eq!(clean_filename_stem("Bad Gyal - Chulo pt. 2.mp3"), "Bad Gyal - Chulo pt. 2");
+        assert_eq!(clean_filename_stem("Artist - Song Part 2.mp3"), "Artist - Song Part 2");
+        assert_eq!(clean_filename_stem("Artist - Mix Vol. 2.mp3"), "Artist - Mix Vol. 2");
+        assert_eq!(clean_filename_stem("Artist - Track v2.mp3"), "Artist - Track v2");
+        assert_eq!(
+            clean_filename_stem("Artist - Track (Remix 2).mp3"),
+            "Artist - Track (Remix 2)"
+        );
+        assert_eq!(
+            clean_filename_stem("Bad_Gyal_-_Chulo_pt_2.mp3"),
+            "Bad Gyal - Chulo pt 2"
+        );
     }
 }

@@ -51,7 +51,10 @@ export interface AudioTrackItem {
   status: TrackStatus;
   metadata?: TrackMetadata;
   exportedPath?: string;
+  localArtworkPath?: string;
   reviewReason?: string;
+  candidates?: TrackCandidate[];
+  lastQueryUsed?: string;
 }
 
 export interface ScanResult {
@@ -71,11 +74,29 @@ export interface ExistingTrackTags {
 
 export type LookupStatus = "matched" | "protected_version" | "not_found";
 
+export interface TrackCandidate {
+  title: string;
+  artist: string;
+  albumArtist: string;
+  album: string;
+  trackNumber?: number;
+  trackTotal?: number;
+  discNumber?: number;
+  discTotal?: number;
+  year?: number;
+  genre?: string;
+  artworkUrl?: string;
+  isCompilation: boolean;
+  storefront: string;
+  confidenceScore: number;
+}
+
 export interface MetadataLookupResult {
   status: LookupStatus;
   queryUsed: string;
   storefront?: string;
   metadata?: TrackMetadata;
+  candidates?: TrackCandidate[];
   reason?: string;
   detectedKeyword?: string;
 }
@@ -84,6 +105,7 @@ export interface BatchTrackInput {
   id: string;
   sourcePath: string;
   cachedMetadata?: TrackMetadata;
+  localArtworkPath?: string;
 }
 
 export interface PipelineProgressEvent {
@@ -95,7 +117,34 @@ export interface PipelineProgressEvent {
   trackStatus: TrackStatus;
   metadata?: TrackMetadata;
   exportedPath?: string;
+  localArtworkPath?: string;
   reviewReason?: string;
+  queryUsed?: string;
+  candidates?: TrackCandidate[];
+}
+
+export interface ManualExportInput {
+  sourcePath: string;
+  exportMode: ExportMode;
+  title: string;
+  artist: string;
+  albumArtist?: string;
+  album?: string;
+  year?: number;
+  genre?: string;
+  trackNumber?: number;
+  trackTotal?: number;
+  discNumber?: number;
+  discTotal?: number;
+  isCompilation?: boolean;
+  artworkUrl?: string;
+  localArtworkPath?: string;
+  source?: MetadataSource;
+}
+
+export interface ManualExportResult {
+  metadata: TrackMetadata;
+  exportedPath: string;
 }
 
 export interface BatchSummary {
@@ -108,12 +157,14 @@ export interface BatchSummary {
 
 export interface QueueStats {
   totalCount: number;
+  pendingCount: number;
+  identifiedCount: number;
   exportedCount: number;
   needsReviewCount: number;
   failedCount: number;
   processingCount: number;
-  pendingCount: number;
-  eligibleToExportCount: number;
+  identifiableCount: number;
+  exportableCount: number;
 }
 
 export interface PipelineConfig {

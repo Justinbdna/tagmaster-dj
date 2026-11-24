@@ -44,7 +44,7 @@ export function ReviewPlaceholderView({
           </p>
         </div>
 
-        <span className="rounded-full border border-sky-400/25 bg-sky-500/10 px-3 py-1 text-[11px] font-medium text-sky-400">
+        <span className="rounded-full border badge-info px-3 py-1 text-[11px] font-medium">
           Édition manuelle &amp; comparateur A/B : Sprint 2
         </span>
       </div>
@@ -61,9 +61,7 @@ export function ReviewPlaceholderView({
                 <div className="flex min-w-0 items-start gap-3">
                   <div
                     className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border ${
-                      isFailed
-                        ? "border-rose-400/35 bg-rose-500/15 text-rose-400"
-                        : "border-amber-400/35 bg-amber-500/15 text-amber-400"
+                      isFailed ? "badge-danger" : "badge-warning"
                     }`}
                   >
                     {isFailed ? (
@@ -93,9 +91,7 @@ export function ReviewPlaceholderView({
 
                 <span
                   className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${
-                    isFailed
-                      ? "border-rose-400/35 bg-rose-500/15 text-rose-400"
-                      : "border-amber-400/35 bg-amber-500/15 text-amber-400"
+                    isFailed ? "badge-danger" : "badge-warning"
                   }`}
                 >
                   {isFailed ? "Erreur" : "À réviser"}

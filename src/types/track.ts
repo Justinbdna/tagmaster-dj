@@ -63,6 +63,7 @@ export interface ScanResult {
 export interface ExistingTrackTags {
   title?: string;
   artist?: string;
+  albumArtist?: string;
   album?: string;
   tagCount: number;
   hasDirtyTags: boolean;
@@ -103,6 +104,16 @@ export interface BatchSummary {
   needsReviewCount: number;
   failedCount: number;
   exportDirectory: string;
+}
+
+export interface QueueStats {
+  totalCount: number;
+  exportedCount: number;
+  needsReviewCount: number;
+  failedCount: number;
+  processingCount: number;
+  pendingCount: number;
+  eligibleToExportCount: number;
 }
 
 export interface PipelineConfig {

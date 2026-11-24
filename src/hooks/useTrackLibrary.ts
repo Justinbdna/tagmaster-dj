@@ -12,10 +12,10 @@ import {
 } from "../services/tauriBridge";
 import type {
   AudioTrackItem,
-  BatchSummary,
   BatchTrackInput,
   ExportMode,
   PipelineProgressEvent,
+  QueueStats,
 } from "../types/track";
 import { formatFileSize } from "../utils/format";
 
@@ -64,9 +64,6 @@ export function useTrackLibrary() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [batchProgress, setBatchProgress] =
     useState<PipelineProgressEvent | null>(null);
-  const [lastBatchSummary, setLastBatchSummary] = useState<BatchSummary | null>(
-    null,
-  );
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -95,7 +92,6 @@ export function useTrackLibrary() {
       });
 
       if (addedCount > 0) {
-        setLastBatchSummary(null);
         setBatchProgress(null);
       }
 
@@ -222,7 +218,6 @@ export function useTrackLibrary() {
   const clearTracks = useCallback(() => {
     setTracks([]);
     setBatchProgress(null);
-    setLastBatchSummary(null);
     setNotice(null);
     setErrorMessage(null);
   }, []);
@@ -233,7 +228,7 @@ export function useTrackLibrary() {
       if (!target) return;
       if (!isTauriEnvironment()) {
         setErrorMessage(
-          "La recherche Apple Music US nécessite l'application desktop Tauri.",
+          "La recherche Apple Music (US / UK / FR) nécessite l'application desktop Tauri.",
         );
         return;
       }
@@ -285,7 +280,7 @@ export function useTrackLibrary() {
         const message =
           err instanceof Error
             ? err.message
-            : "Erreur lors de l'appel Apple Music US.";
+            : "Erreur lors de l'appel Apple Music (US / UK / FR).";
         setTracks((prev) =>
           prev.map((item) =>
             item.id === id
@@ -300,7 +295,7 @@ export function useTrackLibrary() {
   );
 
   const startBatchPipeline = useCallback(
-    async (exportMode: ExportMode) => {
+    async (exportMode: ExportMode, options?: { forceAll?: boolean }) => {
       if (isRunningBatch || tracks.length === 0) return;
 
       if (!isTauriEnvironment()) {
@@ -310,28 +305,49 @@ export function useTrackLibrary() {
         return;
       }
 
-      let targetTracks = tracks.filter(
-        (t) => !t.exportedPath && t.status !== "needs_review",
-      );
+      const forceAll = options?.forceAll ?? false;
+      const targetTracks = forceAll
+        ? tracks
+        : tracks.filter((t) => !t.exportedPath && t.status !== "needs_review");
+
       if (targetTracks.length === 0) {
-        const nonReview = tracks.filter((t) => t.status !== "needs_review");
-        targetTracks = nonReview.length > 0 ? nonReview : tracks;
+        setNotice(
+          "Toutes les pistes éligibles sont déjà traitées — utilisez « Tout relancer » ou l'icône ✨ individuelle.",
+        );
+        return;
+      }
+
+      if (forceAll) {
+        const targetIds = new Set(targetTracks.map((t) => t.id));
+        setTracks((prev) =>
+          prev.map((item) =>
+            targetIds.has(item.id)
+              ? {
+                  ...item,
+                  status: "pending",
+                  exportedPath: undefined,
+                  reviewReason: undefined,
+                }
+              : item,
+          ),
+        );
       }
 
       const inputs: BatchTrackInput[] = targetTracks.map((t) => ({
         id: t.id,
         sourcePath: t.sourcePath,
-        cachedMetadata: t.metadata,
+        cachedMetadata:
+          t.status === "needs_review" || t.status === "failed"
+            ? undefined
+            : t.metadata,
       }));
 
       setErrorMessage(null);
       setIsRunningBatch(true);
-      setLastBatchSummary(null);
       setBatchProgress(null);
 
       try {
         const summary = await runBatchPipeline(inputs, exportMode);
-        setLastBatchSummary(summary);
 
         const parts = [
           `${summary.completedCount} exportée${summary.completedCount > 1 ? "s" : ""}`,
@@ -388,17 +404,19 @@ export function useTrackLibrary() {
       if (!active) return;
       setBatchProgress(event);
       setTracks((prev) =>
-        prev.map((item) =>
-          item.id === event.trackId
-            ? {
-                ...item,
-                status: event.trackStatus,
-                metadata: event.metadata ?? item.metadata,
-                exportedPath: event.exportedPath ?? item.exportedPath,
-                reviewReason: event.reviewReason ?? item.reviewReason,
-              }
-            : item,
-        ),
+        prev.map((item) => {
+          if (item.id !== event.trackId) return item;
+          const clearReviewReason =
+            event.trackStatus === "processing" ||
+            event.trackStatus === "completed";
+          return {
+            ...item,
+            status: event.trackStatus,
+            metadata: event.metadata ?? item.metadata,
+            exportedPath: event.exportedPath ?? item.exportedPath,
+            reviewReason: clearReviewReason ? undefined : event.reviewReason,
+          };
+        }),
       );
     }).then((fn) => {
       if (active) {
@@ -491,21 +509,57 @@ export function useTrackLibrary() {
     [tracks],
   );
 
-  const reviewCount = useMemo(
-    () =>
-      tracks.filter(
-        (item) => item.status === "needs_review" || item.status === "failed",
-      ).length,
-    [tracks],
-  );
+  const queueStats = useMemo<QueueStats>(() => {
+    let exportedCount = 0;
+    let needsReviewCount = 0;
+    let failedCount = 0;
+    let processingCount = 0;
+    let pendingCount = 0;
+    let eligibleToExportCount = 0;
+
+    for (const item of tracks) {
+      if (item.status === "completed" && item.exportedPath) {
+        exportedCount += 1;
+      } else if (item.status === "needs_review") {
+        needsReviewCount += 1;
+      } else if (item.status === "failed") {
+        failedCount += 1;
+      } else if (item.status === "processing") {
+        processingCount += 1;
+        pendingCount += 1;
+      } else {
+        pendingCount += 1;
+      }
+
+      if (
+        !item.exportedPath &&
+        item.status !== "needs_review" &&
+        item.status !== "processing"
+      ) {
+        eligibleToExportCount += 1;
+      }
+    }
+
+    return {
+      totalCount: tracks.length,
+      exportedCount,
+      needsReviewCount,
+      failedCount,
+      processingCount,
+      pendingCount,
+      eligibleToExportCount,
+    };
+  }, [tracks]);
+
+  const reviewCount = queueStats.needsReviewCount + queueStats.failedCount;
 
   return {
     tracks,
+    queueStats,
     isScanning,
     isRunningBatch,
     isDraggingOver,
     batchProgress,
-    lastBatchSummary,
     notice,
     errorMessage,
     clearError: () => setErrorMessage(null),

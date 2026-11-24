@@ -169,10 +169,11 @@ export function SettingsView({
           </span>
         </div>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-secondary">
-          Apple Music US fonctionne sans clé API dès le Sprint 1. La gestion des
-          clés optionnelles <code className="text-primary">GENIUS_API_KEY</code>{" "}
-          (paroles) et <code className="text-primary">DISCOGS_TOKEN</code>{" "}
-          (éditions CD) stockées exclusivement dans votre fichier{" "}
+          Apple Music (US / UK / FR) fonctionne sans clé API dès le Sprint 1. La
+          gestion des clés optionnelles{" "}
+          <code className="text-primary">GENIUS_API_KEY</code> (paroles) et{" "}
+          <code className="text-primary">DISCOGS_TOKEN</code> (éditions CD)
+          stockées exclusivement dans votre fichier{" "}
           <code className="text-primary">.env</code> local sera activée au
           Sprint 2.
         </p>

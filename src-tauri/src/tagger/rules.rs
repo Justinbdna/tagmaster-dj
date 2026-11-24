@@ -6,11 +6,12 @@
 //! - Multi-disques : `Disc Number` et `Disc Total` conservés (`1/2`, `2/2`).
 //! - Mots-clés intouchables : empêcher Apple Music d'écraser une version alternative.
 
+use std::path::Path;
 use std::sync::OnceLock;
 
 use regex::Regex;
 
-use crate::models::{MetadataSource, TrackMetadata};
+use crate::models::{ExistingTrackTags, MetadataSource, TrackMetadata};
 
 pub const PROTECTED_KEYWORDS: &[&str] = &[
     "live",
@@ -35,10 +36,71 @@ pub const DIRTY_TAG_PATTERNS: &[&str] = &[
     "www.",
 ];
 
+pub const GENERIC_FOLDER_NAMES: &[&str] = &[
+    "downloads",
+    "telechargements",
+    "music",
+    "musique",
+    "my music",
+    "ma musique",
+    "desktop",
+    "bureau",
+    "documents",
+    "mes documents",
+    "users",
+    "utilisateurs",
+    "home",
+    "volumes",
+    "tmp",
+    "temp",
+    "var",
+    "private",
+    "library",
+    "bibliotheque",
+    "applications",
+    "public",
+    "shared",
+    "partage",
+    "icloud drive",
+    "tagmaster dj export",
+    "tagmaster dj",
+    "export",
+    "exports",
+    "import",
+    "imports",
+    "inbox",
+    "unsorted",
+    "misc",
+    "divers",
+    "audio",
+    "songs",
+    "tracks",
+    "mp3",
+    "flac",
+    "wav",
+    "new folder",
+    "nouveau dossier",
+    "untitled folder",
+    "dossier sans titre",
+    "media",
+    "itunes",
+    "apple music",
+];
+
+const GENERIC_ARTIST_PLACEHOLDERS: &[&str] = &[
+    "various artists",
+    "multi interpretes",
+    "compilation",
+    "unknown",
+    "unknown artist",
+    "artiste inconnu",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedTrackQuery {
     pub artist_hint: Option<String>,
     pub title_hint: String,
+    pub album_hint: Option<String>,
     pub search_term: String,
 }
 
@@ -67,8 +129,10 @@ fn whitespace_re() -> &'static Regex {
 fn leading_track_num_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"^\s*(?:\d{1,2}\s*-\s*)?\d{1,3}\s*(?:[.\-_)\]]\s*|\s+-\s+|\s+)")
-            .expect("valid track prefix regex")
+        Regex::new(
+            r"(?i)^\s*(?:(?:track|piste)\s+)?(?:[\(\[]\s*(?:\d{1,2}\s*[-.]\s*)?\d{1,3}\s*[\)\]]\s*(?:[-._–—]\s*|\s+)|(?:\d{1,2}\s*[-.]\s*)?\d{1,3}(?:\s*[-._–—)\]]\s*|\s+))",
+        )
+        .expect("valid track prefix regex")
     })
 }
 
@@ -76,10 +140,15 @@ fn noise_brackets_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"(?i)[\(\[](?:official\s*(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)|lyrics?|audio|hd|hq|4k|320\s*kbps|explicit|clean|music\s*video|clip\s*officiel|visualizer)[\)\]]",
+            r"(?i)[\(\[](?:official\s*(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)|clip\s*officiel|audio\s*officiel|vid[ée]o\s*officielle|lyrics?|paroles|audio|(?:full\s*)?hd|hq|4k|320\s*kbps|explicit|clean|music\s*video|visualizer)[\)\]]",
         )
         .expect("valid noise regex")
     })
+}
+
+fn disc_folder_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)^(?:cd|disc|disk|disque)\s*\d+$").expect("valid disc regex"))
 }
 
 fn title_feat_re() -> &'static Regex {
@@ -107,6 +176,149 @@ fn collapse_spaces(input: &str) -> String {
     whitespace_re().replace_all(input.trim(), " ").into_owned()
 }
 
+/// Harmonise apostrophes typographiques et espaces insécables.
+pub fn normalize_apostrophes(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| match c {
+            '’' | '‘' | 'ʼ' | '´' | '`' => '\'',
+            '\u{00A0}' => ' ',
+            other => other,
+        })
+        .collect()
+}
+
+fn fold_latin_chars(input: &str) -> String {
+    let normalized = normalize_apostrophes(input).to_lowercase();
+    let mut folded = String::with_capacity(normalized.len());
+    for ch in normalized.chars() {
+        match ch {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => folded.push('a'),
+            'ç' => folded.push('c'),
+            'è' | 'é' | 'ê' | 'ë' => folded.push('e'),
+            'ì' | 'í' | 'î' | 'ï' => folded.push('i'),
+            'ñ' => folded.push('n'),
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' => folded.push('o'),
+            'ù' | 'ú' | 'û' | 'ü' => folded.push('u'),
+            'ý' | 'ÿ' => folded.push('y'),
+            'œ' => folded.push_str("oe"),
+            'æ' => folded.push_str("ae"),
+            'ß' => folded.push_str("ss"),
+            other => folded.push(other),
+        }
+    }
+    folded
+}
+
+/// Normalise une chaîne pour la comparaison floue (casse, accents, apostrophes, espaces).
+pub fn normalize_for_match(input: &str) -> String {
+    fold_latin_chars(input)
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Nettoie un libellé de piste (titre ou nom sans extension) en supprimant numérotation
+/// et mentions parasites (`Official Audio`, `HD`, `Lyrics`) sans toucher aux mots-clés protégés.
+pub fn clean_track_label(raw: &str) -> String {
+    let normalized = normalize_apostrophes(raw);
+    let without_noise = noise_brackets_re().replace_all(&normalized, " ");
+    let without_underscores = without_noise.replace('_', " ");
+    let without_prefix = leading_track_num_re().replace(&without_underscores, "");
+    let cleaned = collapse_spaces(&without_prefix);
+    if cleaned.is_empty() {
+        collapse_spaces(&without_underscores)
+    } else {
+        cleaned
+    }
+}
+
+/// Nettoie un nom de fichier audio après retrait de son extension.
+pub fn clean_filename_stem(file_name: &str) -> String {
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(base, _)| base)
+        .unwrap_or(file_name);
+    clean_track_label(stem)
+}
+
+fn split_artist_title(input: &str) -> Option<(String, String)> {
+    for sep in [" - ", " – ", " — "] {
+        if let Some((left, right)) = input.split_once(sep) {
+            let artist = collapse_spaces(left);
+            let title = collapse_spaces(right);
+            if !artist.is_empty() && !title.is_empty() {
+                return Some((artist, title));
+            }
+        }
+    }
+    None
+}
+
+fn is_generic_artist_placeholder(value: &str) -> bool {
+    let norm = normalize_for_match(value);
+    norm.is_empty() || GENERIC_ARTIST_PLACEHOLDERS.contains(&norm.as_str())
+}
+
+/// Extrait des indices `(artiste, album)` depuis les dossiers parents en ignorant
+/// les dossiers génériques (`Downloads`, `Téléchargements`, `Music`, `Desktop`, etc.).
+pub fn extract_folder_hints(source_path: &Path) -> (Option<String>, Option<String>) {
+    let mut usable: Vec<String> = Vec::with_capacity(2);
+    let mut current = source_path.parent();
+
+    for _ in 0..4 {
+        let Some(dir) = current else {
+            break;
+        };
+        let Some(raw_name) = dir.file_name().and_then(|n| n.to_str()) else {
+            break;
+        };
+
+        let trimmed = raw_name.trim();
+        if disc_folder_re().is_match(trimmed) {
+            current = dir.parent();
+            continue;
+        }
+
+        let parent_is_user_root = dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(|p| matches!(normalize_for_match(p).as_str(), "users" | "utilisateurs" | "home"))
+            .unwrap_or(false);
+
+        let norm = normalize_for_match(trimmed);
+        if norm.is_empty() || parent_is_user_root || GENERIC_FOLDER_NAMES.contains(&norm.as_str()) {
+            break;
+        }
+
+        let cleaned_dir = collapse_spaces(&normalize_apostrophes(&trimmed.replace('_', " ")));
+        if !cleaned_dir.is_empty() {
+            usable.push(cleaned_dir);
+            if usable.len() == 2 {
+                break;
+            }
+        }
+
+        current = dir.parent();
+    }
+
+    match usable.as_slice() {
+        [closest, second, ..] => (Some(second.clone()), Some(closest.clone())),
+        [single] => {
+            if let Some((left, right)) = split_artist_title(single) {
+                (Some(left), Some(right))
+            } else {
+                (Some(single.clone()), None)
+            }
+        }
+        [] => (None, None),
+    }
+}
+
 /// Retourne le premier mot-clé intouchable détecté (avec limites de mots pour éviter les faux positifs
 /// comme "Deliver" pour "live" ou "Olive" pour "live").
 pub fn detect_protected_keyword(input: &str) -> Option<&'static str> {
@@ -131,68 +343,154 @@ pub fn looks_like_dirty_tag(value: &str) -> bool {
     DIRTY_TAG_PATTERNS.iter().any(|p| lower.contains(p))
 }
 
-/// Extrait une requête de recherche propre à partir du nom de fichier (et optionnellement des tags existants).
-pub fn build_search_query(
-    file_name: &str,
-    existing_artist: Option<&str>,
-    existing_title: Option<&str>,
-) -> ParsedTrackQuery {
-    let clean_existing_artist = existing_artist
-        .map(collapse_spaces)
+/// Construit une requête de recherche enrichie à partir du nom de fichier, des tags
+/// existants (`artist`, `album_artist`, `album`, `title`) et des dossiers parents.
+pub fn build_search_query(source_path: &Path, existing: &ExistingTrackTags) -> ParsedTrackQuery {
+    let file_name = source_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| source_path.to_string_lossy().into_owned());
+
+    let cleaned_filename = clean_filename_stem(&file_name);
+    let (filename_artist, filename_title) = match split_artist_title(&cleaned_filename) {
+        Some((artist, title)) => (Some(artist), Some(title)),
+        None => (None, None),
+    };
+
+    let clean_existing_artist = existing
+        .artist
+        .as_deref()
+        .map(|s| collapse_spaces(&normalize_apostrophes(s)))
+        .filter(|s| !s.is_empty() && !looks_like_dirty_tag(s) && !is_generic_artist_placeholder(s));
+
+    let clean_existing_album_artist = existing
+        .album_artist
+        .as_deref()
+        .map(|s| collapse_spaces(&normalize_apostrophes(s)))
+        .filter(|s| !s.is_empty() && !looks_like_dirty_tag(s) && !is_generic_artist_placeholder(s));
+
+    let clean_existing_album = existing
+        .album
+        .as_deref()
+        .map(|s| collapse_spaces(&normalize_apostrophes(s)))
         .filter(|s| !s.is_empty() && !looks_like_dirty_tag(s));
-    let clean_existing_title = existing_title
-        .map(|s| collapse_spaces(&noise_brackets_re().replace_all(s, "")))
-        .filter(|s| !s.is_empty() && !looks_like_dirty_tag(s));
 
-    if let (Some(artist), Some(title)) = (clean_existing_artist, clean_existing_title) {
-        let primary = extract_primary_artist(&artist);
-        let base_title = strip_feat_from_title(&title);
-        return ParsedTrackQuery {
-            search_term: collapse_spaces(&format!("{primary} {base_title}")),
-            artist_hint: Some(primary),
-            title_hint: title,
-        };
-    }
+    let clean_existing_title = existing
+        .title
+        .as_deref()
+        .filter(|s| !looks_like_dirty_tag(s))
+        .map(clean_track_label)
+        .filter(|s| !s.is_empty());
 
-    // Fallback sur le nom de fichier sans extension
-    let stem = file_name
-        .rsplit_once('.')
-        .map(|(base, _)| base)
-        .unwrap_or(file_name);
+    let (folder_artist, folder_album) = extract_folder_hints(source_path);
 
-    let without_noise = noise_brackets_re().replace_all(stem, " ");
-    let without_underscores = without_noise.replace('_', " ");
-    let without_prefix = leading_track_num_re().replace(&without_underscores, "");
-    let cleaned = collapse_spaces(&without_prefix);
+    let artist_raw = filename_artist
+        .clone()
+        .or(clean_existing_artist)
+        .or(clean_existing_album_artist)
+        .or(folder_artist);
 
-    if let Some((left, right)) = cleaned.split_once(" - ") {
-        let artist = collapse_spaces(left);
-        let title = collapse_spaces(right);
-        if !artist.is_empty() && !title.is_empty() {
-            let primary = extract_primary_artist(&artist);
-            let base_title = strip_feat_from_title(&title);
-            return ParsedTrackQuery {
-                search_term: collapse_spaces(&format!("{primary} {base_title}")),
-                artist_hint: Some(primary),
-                title_hint: title,
-            };
-        }
-    }
+    let title_hint = if filename_artist.is_some() {
+        filename_title.unwrap_or(cleaned_filename)
+    } else {
+        clean_existing_title.unwrap_or(cleaned_filename)
+    };
 
-    let base_title = strip_feat_from_title(&cleaned);
-    ParsedTrackQuery {
-        search_term: if base_title.is_empty() {
-            cleaned.clone()
+    let album_hint = clean_existing_album.or(folder_album);
+
+    let artist_hint = artist_raw
+        .as_deref()
+        .map(extract_primary_artist)
+        .filter(|s| !s.is_empty());
+
+    let base_title = {
+        let stripped = strip_feat_from_title(&title_hint);
+        if stripped.is_empty() {
+            title_hint.clone()
         } else {
-            base_title
-        },
-        artist_hint: None,
-        title_hint: cleaned,
+            stripped
+        }
+    };
+
+    let search_term = match &artist_hint {
+        Some(primary) => collapse_spaces(&format!("{primary} {base_title}")),
+        None => base_title,
+    };
+
+    ParsedTrackQuery {
+        artist_hint,
+        title_hint,
+        album_hint,
+        search_term,
     }
 }
 
-fn strip_feat_from_title(title: &str) -> String {
+pub fn strip_feat_from_title(title: &str) -> String {
     collapse_spaces(&title_feat_re().replace_all(title, ""))
+}
+
+/// Normalise les principaux genres musicaux (notamment renvoyés en français par Apple Music FR)
+/// vers leurs équivalents anglais unifiés afin d'éviter l'éclatement des bibliothèques DJ.
+pub fn normalize_genre_to_english(raw: &str) -> String {
+    let collapsed = collapse_spaces(&normalize_apostrophes(raw));
+    if collapsed.is_empty() {
+        return String::new();
+    }
+
+    let key = collapse_spaces(&fold_latin_chars(&collapsed));
+    match key.as_str() {
+        "hip-hop/rap"
+        | "hip hop/rap"
+        | "hip-hop / rap"
+        | "hip hop / rap"
+        | "rap/hip-hop"
+        | "rap / hip-hop"
+        | "rap"
+        | "rap francais"
+        | "hip-hop francais"
+        | "hip hop francais" => "Hip-Hop/Rap".to_string(),
+        "variete francaise"
+        | "chanson francaise"
+        | "chanson en francais"
+        | "chanson"
+        | "pop francaise"
+        | "french pop" => "French Pop".to_string(),
+        "pop" | "musique pop" => "Pop".to_string(),
+        "r&b/soul"
+        | "r&b / soul"
+        | "soul/r&b"
+        | "soul / r&b"
+        | "r&b contemporain"
+        | "r&b" => "R&B/Soul".to_string(),
+        "electronique"
+        | "musique electronique"
+        | "electro"
+        | "electronic" => "Electronic".to_string(),
+        "dance" | "musique dance" => "Dance".to_string(),
+        "musique latine" | "musiques latines" | "latino" | "latin" => "Latin".to_string(),
+        "afro pop" | "afro-pop" | "afropop" => "Afro-Pop".to_string(),
+        "afrobeat" | "afrobeats" => "Afrobeats".to_string(),
+        "alternatif" | "musique alternative" | "alternative" => "Alternative".to_string(),
+        "rock" | "rock francais" => "Rock".to_string(),
+        "metal" | "heavy metal" => "Metal".to_string(),
+        "musique classique" | "classique" | "classical" => "Classical".to_string(),
+        "bande originale"
+        | "bandes originales"
+        | "musique de film"
+        | "musiques de films"
+        | "soundtrack" => "Soundtrack".to_string(),
+        "musiques du monde" | "musique du monde" | "worldwide" => "Worldwide".to_string(),
+        "musique pour enfants" | "chanson pour enfants" | "enfants" => {
+            "Children's Music".to_string()
+        }
+        "musique de noel" | "noel" | "holiday" => "Holiday".to_string(),
+        "comedie" | "humour" | "comedy" => "Comedy".to_string(),
+        "jazz" => "Jazz".to_string(),
+        "reggae" => "Reggae".to_string(),
+        "blues" => "Blues".to_string(),
+        "country" => "Country".to_string(),
+        _ => collapsed,
+    }
 }
 
 fn normalize_feat_list(raw: &str) -> String {
@@ -337,7 +635,7 @@ pub fn normalize_track_metadata(raw: RawMetadataInput) -> TrackMetadata {
 
     let genre = raw
         .genre
-        .map(|g| collapse_spaces(&g))
+        .map(|g| normalize_genre_to_english(&g))
         .filter(|g| !g.is_empty());
 
     TrackMetadata {
@@ -448,12 +746,104 @@ mod tests {
     #[test]
     fn builds_clean_search_query_from_noisy_filename() {
         let parsed = build_search_query(
-            "01 - Mariah Carey - Reflections (Official Audio) [320kbps].mp3",
-            None,
-            None,
+            Path::new("01 - Mariah Carey - Reflections (Official Audio) [320kbps].mp3"),
+            &ExistingTrackTags::default(),
         );
         assert_eq!(parsed.artist_hint.as_deref(), Some("Mariah Carey"));
         assert_eq!(parsed.title_hint, "Reflections");
         assert_eq!(parsed.search_term, "Mariah Carey Reflections");
+    }
+
+    #[test]
+    fn strips_track_number_prefixes_while_preserving_protected_keywords_and_years() {
+        for sample in [
+            "05 T mimi.mp3",
+            "05 - T mimi.mp3",
+            "05. T mimi.mp3",
+            "1-05 T mimi.mp3",
+            "(05) T mimi.mp3",
+            "[05] - T mimi (Official Audio) [HD].mp3",
+        ] {
+            assert_eq!(clean_filename_stem(sample), "T mimi", "failed on {sample}");
+        }
+
+        assert_eq!(clean_filename_stem("1999 - Prince.mp3"), "1999 - Prince");
+        assert_eq!(clean_filename_stem("24K Magic.mp3"), "24K Magic");
+        assert_eq!(clean_filename_stem("05 T mimi (Remix).mp3"), "T mimi (Remix)");
+        assert_eq!(clean_filename_stem("05 Song (Sped Up).mp3"), "Song (Sped Up)");
+        assert_eq!(clean_filename_stem("01 Track (Live).flac"), "Track (Live)");
+    }
+
+    #[test]
+    fn enriches_query_with_existing_artist_and_album_artist_tags() {
+        let with_artist_only = build_search_query(
+            Path::new("/Users/jujutravail/Downloads/05 T mimi.mp3"),
+            &ExistingTrackTags {
+                artist: Some("Shay".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(with_artist_only.artist_hint.as_deref(), Some("Shay"));
+        assert_eq!(with_artist_only.title_hint, "T mimi");
+        assert_eq!(with_artist_only.search_term, "Shay T mimi");
+
+        let with_album_artist_only = build_search_query(
+            Path::new("/Users/jujutravail/Downloads/05 T mimi.mp3"),
+            &ExistingTrackTags {
+                album_artist: Some("Shay".to_string()),
+                album: Some("Pourvu qu'il pleuve".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(with_album_artist_only.artist_hint.as_deref(), Some("Shay"));
+        assert_eq!(
+            with_album_artist_only.album_hint.as_deref(),
+            Some("Pourvu qu'il pleuve")
+        );
+        assert_eq!(with_album_artist_only.title_hint, "T mimi");
+        assert_eq!(with_album_artist_only.search_term, "Shay T mimi");
+    }
+
+    #[test]
+    fn enriches_query_from_parent_folders_and_ignores_generic_folders() {
+        let from_folders = build_search_query(
+            Path::new("/Users/jujutravail/Music/Shay/Pourvu qu'il pleuve/05 T mimi.mp3"),
+            &ExistingTrackTags::default(),
+        );
+        assert_eq!(from_folders.artist_hint.as_deref(), Some("Shay"));
+        assert_eq!(
+            from_folders.album_hint.as_deref(),
+            Some("Pourvu qu'il pleuve")
+        );
+        assert_eq!(from_folders.title_hint, "T mimi");
+        assert_eq!(from_folders.search_term, "Shay T mimi");
+
+        for generic in [
+            "/Users/jujutravail/Downloads/05 T mimi.mp3",
+            "/Users/jujutravail/Téléchargements/05 T mimi.mp3",
+            "/Users/jujutravail/Desktop/05 T mimi.mp3",
+            "/Users/jujutravail/Bureau/05 T mimi.mp3",
+        ] {
+            let parsed = build_search_query(Path::new(generic), &ExistingTrackTags::default());
+            assert_eq!(parsed.artist_hint, None, "generic folder leaked on {generic}");
+            assert_eq!(parsed.title_hint, "T mimi");
+            assert_eq!(parsed.search_term, "T mimi");
+        }
+    }
+
+    #[test]
+    fn normalizes_accents_apostrophes_and_genres() {
+        assert_eq!(normalize_for_match("Más Cara"), normalize_for_match("Mas Cara"));
+        assert_eq!(normalize_for_match("T’mimi"), "t mimi");
+        assert_eq!(normalize_for_match("T'mimi"), "t mimi");
+        assert_eq!(normalize_for_match("T   mimi"), "t mimi");
+
+        assert_eq!(normalize_genre_to_english("Hip-hop/Rap"), "Hip-Hop/Rap");
+        assert_eq!(normalize_genre_to_english("Variété française"), "French Pop");
+        assert_eq!(normalize_genre_to_english("Électronique"), "Electronic");
+        assert_eq!(normalize_genre_to_english("Musique latine"), "Latin");
+        assert_eq!(normalize_genre_to_english("R&B / Soul"), "R&B/Soul");
+        assert_eq!(normalize_genre_to_english("Afro\u{00a0}pop"), "Afro-Pop");
+        assert_eq!(normalize_genre_to_english("Urbano latino"), "Urbano latino");
     }
 }

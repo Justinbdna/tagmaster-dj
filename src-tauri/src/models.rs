@@ -89,6 +89,7 @@ pub struct ScanResult {
 pub struct ExistingTrackTags {
     pub title: Option<String>,
     pub artist: Option<String>,
+    pub album_artist: Option<String>,
     pub album: Option<String>,
     pub tag_count: usize,
     pub has_dirty_tags: bool,

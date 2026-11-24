@@ -6,42 +6,64 @@
       "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, Helvetica, Arial,
       sans-serif;
 
-    /* Dark Mode (Default — iOS 26 / macOS Tahoe Liquid Glass) */
-    --canvas-base: #060911;
-    --canvas-orb-1: rgba(56, 189, 248, 0.18);
-    --canvas-orb-2: rgba(99, 102, 241, 0.17);
-    --canvas-orb-3: rgba(168, 85, 247, 0.12);
-    --canvas-orb-4: rgba(20, 184, 166, 0.1);
+    /* Dark Mode (Default — Neutral Carbon / Obsidian Liquid Glass, macOS Tahoe / iOS 26) */
+    --canvas-base: #0d0d0f;
+    --canvas-orb-1: rgba(255, 255, 255, 0.065);
+    --canvas-orb-2: rgba(196, 196, 204, 0.05);
+    --canvas-orb-3: rgba(138, 138, 146, 0.045);
+    --canvas-orb-4: rgba(224, 224, 230, 0.04);
 
-    /* Liquid Glass Navigation Layer */
-    --glass-bg: rgba(22, 27, 40, 0.56);
-    --glass-bg-hover: rgba(34, 42, 62, 0.66);
-    --glass-pill-bg: rgba(255, 255, 255, 0.08);
-    --glass-pill-hover: rgba(255, 255, 255, 0.14);
-    --glass-active-bg: rgba(255, 255, 255, 0.16);
-    --glass-border: rgba(255, 255, 255, 0.14);
-    --glass-border-strong: rgba(255, 255, 255, 0.24);
-    --glass-specular-top: rgba(255, 255, 255, 0.26);
-    --glass-specular-sheen: rgba(255, 255, 255, 0.09);
-    --glass-shadow: 0 22px 54px rgba(0, 0, 0, 0.45),
-      0 4px 16px rgba(0, 0, 0, 0.25);
+    /* Liquid Glass Navigation Layer (Elevated Carbon Chrome) */
+    --glass-bg: rgba(28, 28, 32, 0.64);
+    --glass-bg-hover: rgba(38, 38, 43, 0.74);
+    --glass-pill-bg: rgba(255, 255, 255, 0.075);
+    --glass-pill-hover: rgba(255, 255, 255, 0.13);
+    --glass-active-bg: rgba(255, 255, 255, 0.145);
+    --glass-border: rgba(255, 255, 255, 0.11);
+    --glass-border-strong: rgba(255, 255, 255, 0.2);
+    --glass-specular-top: rgba(255, 255, 255, 0.22);
+    --glass-specular-sheen: rgba(255, 255, 255, 0.075);
+    --glass-shadow: 0 24px 56px rgba(0, 0, 0, 0.56),
+      0 4px 16px rgba(0, 0, 0, 0.34);
 
-    /* Foundational Content Layer (Apple HIG: crisp, high-legibility) */
-    --content-bg: rgba(14, 18, 28, 0.72);
-    --content-card-bg: rgba(255, 255, 255, 0.035);
-    --content-card-hover: rgba(255, 255, 255, 0.065);
-    --content-border: rgba(255, 255, 255, 0.09);
+    /* Foundational Content Layer (Deep Obsidian Surface) */
+    --content-bg: rgba(20, 20, 23, 0.78);
+    --content-card-bg: rgba(255, 255, 255, 0.04);
+    --content-card-hover: rgba(255, 255, 255, 0.075);
+    --content-border: rgba(255, 255, 255, 0.085);
     --content-divider: rgba(255, 255, 255, 0.07);
+    --content-shadow: 0 16px 38px rgba(0, 0, 0, 0.36);
 
     /* Typography */
     --text-primary: rgba(255, 255, 255, 0.96);
-    --text-secondary: rgba(235, 240, 255, 0.66);
-    --text-muted: rgba(215, 224, 245, 0.46);
+    --text-secondary: rgba(235, 235, 240, 0.74);
+    --text-muted: rgba(200, 200, 208, 0.54);
 
-    /* Accent */
+    /* Accent & Controls */
+    --primary-btn-bg: linear-gradient(
+      135deg,
+      rgba(10, 132, 255, 0.92) 0%,
+      rgba(37, 99, 235, 0.94) 100%
+    );
     --accent-primary: #38bdf8;
     --accent-secondary: #6366f1;
-    --accent-glow: rgba(56, 189, 248, 0.28);
+    --accent-glow: rgba(10, 132, 255, 0.24);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+
+    /* Semantic Status Badges (Dark) */
+    --badge-success-bg: rgba(16, 185, 129, 0.16);
+    --badge-success-border: rgba(52, 211, 153, 0.34);
+    --badge-success-text: #6ee7b7;
+    --badge-warning-bg: rgba(245, 158, 11, 0.16);
+    --badge-warning-border: rgba(251, 191, 36, 0.36);
+    --badge-warning-text: #fcd34d;
+    --badge-danger-bg: rgba(244, 63, 94, 0.16);
+    --badge-danger-border: rgba(251, 113, 133, 0.36);
+    --badge-danger-text: #fda4af;
+    --badge-info-bg: rgba(56, 189, 248, 0.16);
+    --badge-info-border: rgba(56, 189, 248, 0.34);
+    --badge-info-text: #7dd3fc;
 
     color-scheme: dark;
     font-family: var(--font-sans);
@@ -74,24 +96,47 @@
     --content-card-hover: rgba(15, 23, 42, 0.05);
     --content-border: rgba(15, 23, 42, 0.09);
     --content-divider: rgba(15, 23, 42, 0.07);
+    --content-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
 
     /* Typography */
     --text-primary: rgba(15, 23, 42, 0.94);
     --text-secondary: rgba(30, 41, 59, 0.68);
     --text-muted: rgba(51, 65, 85, 0.5);
 
+    --primary-btn-bg: linear-gradient(
+      135deg,
+      rgba(14, 165, 233, 0.88) 0%,
+      rgba(79, 70, 229, 0.9) 100%
+    );
     --accent-primary: #0284c7;
     --accent-secondary: #4f46e5;
     --accent-glow: rgba(2, 132, 199, 0.2);
+    --scrollbar-thumb: rgba(15, 23, 42, 0.2);
+    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.36);
+
+    /* Semantic Status Badges (Light) */
+    --badge-success-bg: rgba(16, 185, 129, 0.14);
+    --badge-success-border: rgba(5, 150, 105, 0.3);
+    --badge-success-text: #047857;
+    --badge-warning-bg: rgba(245, 158, 11, 0.16);
+    --badge-warning-border: rgba(217, 119, 6, 0.34);
+    --badge-warning-text: #b45309;
+    --badge-danger-bg: rgba(244, 63, 94, 0.14);
+    --badge-danger-border: rgba(225, 29, 72, 0.32);
+    --badge-danger-text: #be123c;
+    --badge-info-bg: rgba(14, 165, 233, 0.14);
+    --badge-info-border: rgba(2, 132, 199, 0.3);
+    --badge-info-text: #0369a1;
 
     color-scheme: light;
   }
 
   /* Tinted Glass Accessibility Option (inspired by macOS Tahoe Tinted Liquid Glass) */
   html.dark[data-glass-tint="tinted"] {
-    --glass-bg: rgba(16, 20, 31, 0.82);
-    --glass-pill-bg: rgba(255, 255, 255, 0.11);
-    --content-bg: rgba(12, 15, 24, 0.9);
+    --glass-bg: rgba(24, 24, 28, 0.86);
+    --glass-pill-bg: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.13);
+    --content-bg: rgba(17, 17, 20, 0.92);
   }
 
   html.light[data-glass-tint="tinted"] {
@@ -135,8 +180,8 @@
 .liquid-glass {
   position: relative;
   background: var(--glass-bg);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(32px) saturate(165%);
+  -webkit-backdrop-filter: blur(32px) saturate(165%);
   border: 1px solid var(--glass-border);
   box-shadow:
     inset 0 1px 0.5px 0 var(--glass-specular-top),
@@ -158,7 +203,7 @@
     var(--glass-specular-sheen) 0%,
     transparent 42%,
     transparent 78%,
-    rgba(255, 255, 255, 0.03) 100%
+    rgba(255, 255, 255, 0.025) 100%
   );
   pointer-events: none;
 }
@@ -167,8 +212,8 @@
 .liquid-glass-pill {
   position: relative;
   background: var(--glass-pill-bg);
-  backdrop-filter: blur(20px) saturate(175%);
-  -webkit-backdrop-filter: blur(20px) saturate(175%);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
   border: 1px solid var(--glass-border);
   box-shadow:
     inset 0 1px 0 0 var(--glass-specular-top),
@@ -201,15 +246,11 @@
 /* Primary Accent Liquid Glass Button */
 .liquid-glass-primary {
   position: relative;
-  background: linear-gradient(
-    135deg,
-    rgba(14, 165, 233, 0.88) 0%,
-    rgba(79, 70, 229, 0.9) 100%
-  );
+  background: var(--primary-btn-bg);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.28);
   box-shadow:
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.48),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.45),
     0 10px 26px var(--accent-glow),
     0 2px 6px rgba(0, 0, 0, 0.18);
   transition:
@@ -221,7 +262,7 @@
 .liquid-glass-primary:hover:not(:disabled) {
   filter: brightness(1.08);
   box-shadow:
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.58),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.56),
     0 14px 32px var(--accent-glow),
     0 4px 10px rgba(0, 0, 0, 0.22);
 }
@@ -233,12 +274,37 @@
 /* Foundational Content Surface (Lists, Tables, Main Workspace Body) */
 .content-surface {
   background: var(--content-bg);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
   border: 1px solid var(--content-border);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-    0 12px 32px rgba(0, 0, 0, 0.12);
+    var(--content-shadow);
+}
+
+/* Semantic Status Badges */
+.badge-success {
+  background-color: var(--badge-success-bg);
+  border-color: var(--badge-success-border);
+  color: var(--badge-success-text);
+}
+
+.badge-warning {
+  background-color: var(--badge-warning-bg);
+  border-color: var(--badge-warning-border);
+  color: var(--badge-warning-text);
+}
+
+.badge-danger {
+  background-color: var(--badge-danger-bg);
+  border-color: var(--badge-danger-border);
+  color: var(--badge-danger-text);
+}
+
+.badge-info {
+  background-color: var(--badge-info-bg);
+  border-color: var(--badge-info-border);
+  color: var(--badge-info-text);
 }
 
 .text-primary {
@@ -264,10 +330,10 @@
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.24);
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.42);
+  background: var(--scrollbar-thumb-hover);
 }

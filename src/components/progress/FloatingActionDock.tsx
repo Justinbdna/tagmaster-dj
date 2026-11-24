@@ -1,39 +1,47 @@
-import { FolderOpen, Loader2, Sparkles } from "lucide-react";
+import { FolderOpen, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import type {
-  BatchSummary,
   ExportMode,
   PipelineProgressEvent,
+  QueueStats,
 } from "../../types/track";
 
 interface FloatingActionDockProps {
-  trackCount: number;
+  queueStats: QueueStats;
   protectedCount: number;
   totalSizeLabel: string;
   exportMode: ExportMode;
   notice: string | null;
   isRunningBatch: boolean;
   batchProgress: PipelineProgressEvent | null;
-  lastBatchSummary: BatchSummary | null;
   onRunBatch: () => void;
+  onForceRunBatch: () => void;
   onOpenExportFolder: () => void;
 }
 
 export function FloatingActionDock({
-  trackCount,
+  queueStats,
   protectedCount,
   totalSizeLabel,
   exportMode,
   notice,
   isRunningBatch,
   batchProgress,
-  lastBatchSummary,
   onRunBatch,
+  onForceRunBatch,
   onOpenExportFolder,
 }: FloatingActionDockProps) {
+  const resolvedCount =
+    queueStats.exportedCount +
+    queueStats.needsReviewCount +
+    queueStats.failedCount;
+  const hasAnyProcessed = resolvedCount > 0;
+  const isAllSettled =
+    hasAnyProcessed && queueStats.pendingCount === 0 && !isRunningBatch;
+
   const progressPercent = isRunningBatch
     ? (batchProgress?.percent ?? 0)
-    : lastBatchSummary
-      ? 100
+    : queueStats.totalCount > 0
+      ? Math.round((resolvedCount / queueStats.totalCount) * 100)
       : 0;
 
   let progressLabel: string;
@@ -41,19 +49,28 @@ export function FloatingActionDock({
     progressLabel = `En cours (${batchProgress.currentIndex} / ${batchProgress.totalTracks} · ${batchProgress.percent} %) — ${batchProgress.currentFileName}`;
   } else if (isRunningBatch) {
     progressLabel = "Préparation du lot en cours…";
-  } else if (lastBatchSummary) {
-    const parts = [
-      `${lastBatchSummary.completedCount} exportée${lastBatchSummary.completedCount > 1 ? "s" : ""}`,
-    ];
-    if (lastBatchSummary.needsReviewCount > 0) {
-      parts.push(`${lastBatchSummary.needsReviewCount} à réviser`);
+  } else if (hasAnyProcessed) {
+    const parts: string[] = [];
+    if (queueStats.pendingCount > 0) {
+      parts.push(`${queueStats.pendingCount} en attente`);
     }
-    if (lastBatchSummary.failedCount > 0) {
+    if (queueStats.exportedCount > 0) {
       parts.push(
-        `${lastBatchSummary.failedCount} erreur${lastBatchSummary.failedCount > 1 ? "s" : ""}`,
+        `${queueStats.exportedCount} exportée${queueStats.exportedCount > 1 ? "s" : ""}`,
       );
     }
-    progressLabel = `Terminé : ${parts.join(" · ")}`;
+    if (queueStats.needsReviewCount > 0) {
+      parts.push(`${queueStats.needsReviewCount} à réviser`);
+    }
+    if (queueStats.failedCount > 0) {
+      parts.push(
+        `${queueStats.failedCount} erreur${queueStats.failedCount > 1 ? "s" : ""}`,
+      );
+    }
+    progressLabel =
+      queueStats.pendingCount === 0
+        ? `Terminé : ${parts.join(" · ")}`
+        : parts.join(" · ");
   } else {
     progressLabel =
       notice ?? "Prêt à nettoyer, tagger et exporter sans modifier les originaux";
@@ -65,8 +82,8 @@ export function FloatingActionDock({
       <div className="relative z-10 min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-medium text-primary">
           <span className="tabular-nums">
-            {trackCount} piste{trackCount > 1 ? "s" : ""} prête
-            {trackCount > 1 ? "s" : ""}
+            {queueStats.totalCount} piste{queueStats.totalCount > 1 ? "s" : ""}{" "}
+            dans la file
           </span>
           <span className="text-muted">·</span>
           <span className="tabular-nums text-secondary">{totalSizeLabel}</span>
@@ -90,9 +107,9 @@ export function FloatingActionDock({
           <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-white/10">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
-                lastBatchSummary && !isRunningBatch
+                isAllSettled
                   ? "bg-gradient-to-r from-emerald-400 to-sky-400"
-                  : "bg-gradient-to-r from-sky-400 to-indigo-500"
+                  : "bg-gradient-to-r from-sky-400 to-blue-500"
               }`}
               style={{ width: `${progressPercent}%` }}
             />
@@ -106,7 +123,7 @@ export function FloatingActionDock({
         </div>
       </div>
 
-      {/* Right: Secondary open export + Primary launch batch */}
+      {/* Right: Secondary open export / force rerun + Primary launch batch */}
       <div className="relative z-10 flex shrink-0 items-center gap-2.5">
         <button
           type="button"
@@ -118,11 +135,23 @@ export function FloatingActionDock({
           <span>Ouvrir Export</span>
         </button>
 
+        {!isRunningBatch && hasAnyProcessed && (
+          <button
+            type="button"
+            onClick={onForceRunBatch}
+            title="Relancer toutes les pistes dans le mode d'export actuel"
+            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-2.5 text-[12px] font-medium text-primary"
+          >
+            <RotateCcw className="h-3.5 w-3.5 text-secondary" strokeWidth={1.9} />
+            <span>Tout relancer</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onRunBatch}
-          disabled={isRunningBatch || trackCount === 0}
-          title="Lancer l'identification Apple Music US, la Table Rase et l'export sécurisé"
+          disabled={isRunningBatch || queueStats.eligibleToExportCount === 0}
+          title="Lancer l'identification Apple Music (US / UK / FR), la Table Rase et l'export sécurisé"
           className="liquid-glass-primary flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isRunningBatch ? (
@@ -138,7 +167,12 @@ export function FloatingActionDock({
           ) : (
             <>
               <Sparkles className="h-4 w-4" strokeWidth={2} />
-              <span>Taguer &amp; Exporter</span>
+              <span>
+                {queueStats.eligibleToExportCount > 0 &&
+                queueStats.eligibleToExportCount < queueStats.totalCount
+                  ? `Taguer & Exporter (${queueStats.eligibleToExportCount})`
+                  : "Taguer & Exporter"}
+              </span>
             </>
           )}
         </button>

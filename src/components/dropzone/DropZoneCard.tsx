@@ -36,7 +36,7 @@ export function DropZoneCard({
         <p className="mt-2.5 text-[13.5px] leading-relaxed text-secondary">
           Glissez un dossier complet (scan récursif automatique) ou sélectionnez
           vos pistes audio pour lancer le nettoyage « Table Rase » et
-          l&apos;enrichissement Apple Music US.
+          l&apos;enrichissement Apple Music (US / UK / FR).
         </p>
 
         {/* Supported Formats */}

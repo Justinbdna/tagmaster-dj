@@ -19,6 +19,17 @@ use crate::api::apple_music::DownloadedArtwork;
 use crate::models::{ExistingTrackTags, TrackMetadata};
 use crate::tagger::rules::looks_like_dirty_tag;
 
+fn non_blank(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
 /// Lecture seule des tags existants sur un fichier source (ne modifie jamais le fichier).
 pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
     let tagged_file = Probe::open(path)
@@ -47,18 +58,33 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
     }
 
     let primary = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
-    let (title, artist, album) = match primary {
-        Some(tag) => (
-            tag.title().map(|s| s.into_owned()),
-            tag.artist().map(|s| s.into_owned()),
-            tag.album().map(|s| s.into_owned()),
-        ),
-        None => (None, None, None),
-    };
+    let mut title = None;
+    let mut artist = None;
+    let mut album_artist = None;
+    let mut album = None;
+
+    for tag in primary.into_iter().chain(all_tags.iter()) {
+        if title.is_none() {
+            title = non_blank(tag.title().map(|s| s.into_owned()));
+        }
+        if artist.is_none() {
+            artist = non_blank(tag.artist().map(|s| s.into_owned()));
+        }
+        if album_artist.is_none() {
+            album_artist = non_blank(tag.get_string(ItemKey::AlbumArtist).map(str::to_string));
+        }
+        if album.is_none() {
+            album = non_blank(tag.album().map(|s| s.into_owned()));
+        }
+        if title.is_some() && artist.is_some() && album_artist.is_some() && album.is_some() {
+            break;
+        }
+    }
 
     Ok(ExistingTrackTags {
         title,
         artist,
+        album_artist,
         album,
         tag_count,
         has_dirty_tags,
@@ -281,6 +307,32 @@ mod tests {
         assert_eq!(tag.pictures().len(), 1);
         assert_eq!(tag.pictures()[0].pic_type(), PictureType::CoverFront);
         assert_eq!(tag.pictures()[0].data(), fake_jpeg.bytes.as_slice());
+
+        let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn reads_existing_tags_including_album_artist_without_modifying_source() {
+        let mp3_path = create_minimal_valid_mp3();
+
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title("05 T mimi".into());
+        tag.set_artist("Shay".into());
+        tag.insert_text(ItemKey::AlbumArtist, "Shay".into());
+        tag.set_album("Pourvu qu'il pleuve".into());
+        tag.save_to_path(&mp3_path, WriteOptions::default())
+            .expect("save id3v2 tags");
+
+        let before_bytes = fs::read(&mp3_path).expect("read original bytes");
+        let existing = read_existing_tags(&mp3_path).expect("read_existing_tags should succeed");
+        let after_bytes = fs::read(&mp3_path).expect("re-read bytes");
+
+        assert_eq!(before_bytes, after_bytes, "source file must remain untouched");
+        assert_eq!(existing.title.as_deref(), Some("05 T mimi"));
+        assert_eq!(existing.artist.as_deref(), Some("Shay"));
+        assert_eq!(existing.album_artist.as_deref(), Some("Shay"));
+        assert_eq!(existing.album.as_deref(), Some("Pourvu qu'il pleuve"));
+        assert!(!existing.has_dirty_tags);
 
         let _ = fs::remove_file(&mp3_path);
     }

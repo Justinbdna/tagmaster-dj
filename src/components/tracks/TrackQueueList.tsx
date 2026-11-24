@@ -35,19 +35,19 @@ const STATUS_BADGE: Record<
   },
   processing: {
     label: "Recherche…",
-    className: "border-sky-400/30 bg-sky-500/15 text-sky-400",
+    className: "badge-info",
   },
   completed: {
     label: "Identifié",
-    className: "border-emerald-400/30 bg-emerald-500/15 text-emerald-400",
+    className: "badge-success",
   },
   needs_review: {
     label: "À réviser",
-    className: "border-amber-400/35 bg-amber-500/15 text-amber-400",
+    className: "badge-warning",
   },
   failed: {
     label: "Erreur",
-    className: "border-rose-400/35 bg-rose-500/15 text-rose-400",
+    className: "badge-danger",
   },
 };
 
@@ -234,7 +234,7 @@ export function TrackQueueList({
                         {track.hasProtectedKeyword && (
                           <span
                             title="Mot-clé intouchable détecté (Live, Remix, Acoustic, Sped Up, Chopped, Instrumental, Mashup) — protégé contre un écrasement studio Apple Music"
-                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-400/35 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border badge-warning px-2 py-0.5 text-[10px] font-semibold"
                           >
                             <ShieldAlert className="h-3 w-3" />
                             Version protégée
@@ -289,8 +289,8 @@ export function TrackQueueList({
                       type="button"
                       onClick={() => onLookupTrack(track.id)}
                       disabled={isRunningBatch || track.status === "processing"}
-                      title="Tester l'identification Apple Music US (lecture seule, sans modifier le fichier)"
-                      aria-label={`Identifier ${track.fileName} via Apple Music US`}
+                      title="Tester l'identification Apple Music (US / UK / FR) — lecture seule, sans modifier le fichier"
+                      aria-label={`Identifier ${track.fileName} via Apple Music`}
                       className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400 transition-colors hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50"
                     >
                       {track.status === "processing" ? (

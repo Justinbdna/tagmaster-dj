@@ -127,15 +127,19 @@ export function WorkspacePage() {
                 />
 
                 <FloatingActionDock
-                  trackCount={library.tracks.length}
+                  queueStats={library.queueStats}
                   protectedCount={library.protectedCount}
                   totalSizeLabel={library.totalSizeLabel}
                   exportMode={exportMode}
                   notice={library.notice}
                   isRunningBatch={library.isRunningBatch}
                   batchProgress={library.batchProgress}
-                  lastBatchSummary={library.lastBatchSummary}
                   onRunBatch={() => void library.startBatchPipeline(exportMode)}
+                  onForceRunBatch={() =>
+                    void library.startBatchPipeline(exportMode, {
+                      forceAll: true,
+                    })
+                  }
                   onOpenExportFolder={() => void library.openExportFolder()}
                 />
               </>

@@ -53,11 +53,6 @@ async fn read_track_tags(source_path: String) -> Result<ExistingTrackTags, Strin
 #[tauri::command]
 async fn lookup_track_metadata(source_path: String) -> Result<MetadataLookupResult, String> {
     let path = PathBuf::from(&source_path);
-    let file_name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| source_path.clone());
-
     let path_for_read = path.clone();
     let existing = tauri::async_runtime::spawn_blocking(move || {
         tagger::read_existing_tags(&path_for_read).unwrap_or_default()
@@ -65,12 +60,7 @@ async fn lookup_track_metadata(source_path: String) -> Result<MetadataLookupResu
     .await
     .unwrap_or_default();
 
-    api::apple_music::search_track(
-        &file_name,
-        existing.artist.as_deref(),
-        existing.title.as_deref(),
-    )
-    .await
+    api::apple_music::search_track(&path, &existing).await
 }
 
 #[tauri::command]
@@ -136,7 +126,7 @@ async fn run_batch_pipeline(
 
         let done_percent = ((current_index * 100) / total.max(1)) as u8;
 
-        // 1. Résolution des métadonnées (cache UI si déjà prévisualisé, sinon Apple Music US/UK)
+        // 1. Résolution des métadonnées (cache UI si déjà prévisualisé, sinon Apple Music US/UK/FR)
         let metadata = if let Some(cached) = item.cached_metadata {
             cached
         } else {
@@ -147,13 +137,7 @@ async fn run_batch_pipeline(
             .await
             .unwrap_or_default();
 
-            match api::apple_music::search_track(
-                &current_file_name,
-                existing.artist.as_deref(),
-                existing.title.as_deref(),
-            )
-            .await
-            {
+            match api::apple_music::search_track(&source_path, &existing).await {
                 Ok(lookup)
                     if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
                 {

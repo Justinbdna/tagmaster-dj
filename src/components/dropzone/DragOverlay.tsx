@@ -12,7 +12,7 @@ export function DragOverlay({ visible }: DragOverlayProps) {
       className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6 backdrop-blur-md transition-opacity duration-200"
       aria-live="polite"
     >
-      <div className="liquid-glass flex max-w-md flex-col items-center rounded-[30px] border-sky-400/50 px-10 py-9 text-center shadow-[0_0_60px_rgba(56,189,248,0.28)]">
+      <div className="liquid-glass flex max-w-md flex-col items-center rounded-[30px] border-[var(--glass-border-strong)] px-10 py-9 text-center shadow-[0_0_48px_var(--accent-glow)]">
         <div className="liquid-glass-primary mb-4 flex h-16 w-16 items-center justify-center rounded-[20px]">
           <FolderDown className="h-8 w-8 text-white" strokeWidth={1.9} />
         </div>

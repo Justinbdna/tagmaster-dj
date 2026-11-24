@@ -72,6 +72,7 @@ pub struct AudioTrackItem {
     pub has_protected_keyword: bool,
     pub status: TrackStatus,
     pub metadata: Option<TrackMetadata>,
+    pub exported_path: Option<String>,
     pub review_reason: Option<String>,
 }
 
@@ -110,6 +111,38 @@ pub struct MetadataLookupResult {
     pub metadata: Option<TrackMetadata>,
     pub reason: Option<String>,
     pub detected_keyword: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchTrackInput {
+    pub id: String,
+    pub source_path: String,
+    pub cached_metadata: Option<TrackMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineProgressEvent {
+    pub track_id: String,
+    pub current_index: usize,
+    pub total_tracks: usize,
+    pub percent: u8,
+    pub current_file_name: String,
+    pub track_status: TrackStatus,
+    pub metadata: Option<TrackMetadata>,
+    pub exported_path: Option<String>,
+    pub review_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchSummary {
+    pub total: usize,
+    pub completed_count: usize,
+    pub needs_review_count: usize,
+    pub failed_count: usize,
+    pub export_directory: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

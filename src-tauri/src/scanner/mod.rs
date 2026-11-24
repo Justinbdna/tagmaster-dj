@@ -56,6 +56,7 @@ fn build_track_item(path: &Path, extension: String) -> Option<AudioTrackItem> {
         has_protected_keyword,
         status: TrackStatus::Pending,
         metadata: None,
+        exported_path: None,
         review_reason: None,
     })
 }

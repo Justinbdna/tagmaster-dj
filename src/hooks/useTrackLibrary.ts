@@ -3,11 +3,20 @@ import {
   isTauriEnvironment,
   lookupTrackMetadata,
   openAudioFilesDialog,
+  openExportDirectory,
   openFolderDialog,
+  runBatchPipeline,
   scanAudioPaths,
+  subscribeToPipelineProgress,
   subscribeToWindowDragDrop,
 } from "../services/tauriBridge";
-import type { AudioTrackItem } from "../types/track";
+import type {
+  AudioTrackItem,
+  BatchSummary,
+  BatchTrackInput,
+  ExportMode,
+  PipelineProgressEvent,
+} from "../types/track";
 import { formatFileSize } from "../utils/format";
 
 const PROTECTED_KEYWORDS = [
@@ -51,7 +60,13 @@ function buildBrowserTrack(file: File): AudioTrackItem | null {
 export function useTrackLibrary() {
   const [tracks, setTracks] = useState<AudioTrackItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [isRunningBatch, setIsRunningBatch] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [batchProgress, setBatchProgress] =
+    useState<PipelineProgressEvent | null>(null);
+  const [lastBatchSummary, setLastBatchSummary] = useState<BatchSummary | null>(
+    null,
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -78,6 +93,11 @@ export function useTrackLibrary() {
         }
         return next;
       });
+
+      if (addedCount > 0) {
+        setLastBatchSummary(null);
+        setBatchProgress(null);
+      }
 
       if (addedCount === 0 && incoming.length === 0) {
         setNotice(
@@ -201,6 +221,8 @@ export function useTrackLibrary() {
 
   const clearTracks = useCallback(() => {
     setTracks([]);
+    setBatchProgress(null);
+    setLastBatchSummary(null);
     setNotice(null);
     setErrorMessage(null);
   }, []);
@@ -276,6 +298,121 @@ export function useTrackLibrary() {
     },
     [tracks],
   );
+
+  const startBatchPipeline = useCallback(
+    async (exportMode: ExportMode) => {
+      if (isRunningBatch || tracks.length === 0) return;
+
+      if (!isTauriEnvironment()) {
+        setErrorMessage(
+          "L'export non destructif nécessite l'application desktop Tauri.",
+        );
+        return;
+      }
+
+      let targetTracks = tracks.filter(
+        (t) => !t.exportedPath && t.status !== "needs_review",
+      );
+      if (targetTracks.length === 0) {
+        const nonReview = tracks.filter((t) => t.status !== "needs_review");
+        targetTracks = nonReview.length > 0 ? nonReview : tracks;
+      }
+
+      const inputs: BatchTrackInput[] = targetTracks.map((t) => ({
+        id: t.id,
+        sourcePath: t.sourcePath,
+        cachedMetadata: t.metadata,
+      }));
+
+      setErrorMessage(null);
+      setIsRunningBatch(true);
+      setLastBatchSummary(null);
+      setBatchProgress(null);
+
+      try {
+        const summary = await runBatchPipeline(inputs, exportMode);
+        setLastBatchSummary(summary);
+
+        const parts = [
+          `${summary.completedCount} exportée${summary.completedCount > 1 ? "s" : ""}`,
+        ];
+        if (summary.needsReviewCount > 0) {
+          parts.push(`${summary.needsReviewCount} à réviser`);
+        }
+        if (summary.failedCount > 0) {
+          parts.push(
+            `${summary.failedCount} erreur${summary.failedCount > 1 ? "s" : ""}`,
+          );
+        }
+        setNotice(`Lot terminé : ${parts.join(" · ")}`);
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Erreur pendant le traitement par lots.";
+        setErrorMessage(message);
+      } finally {
+        setIsRunningBatch(false);
+      }
+    },
+    [isRunningBatch, tracks],
+  );
+
+  const openExportFolder = useCallback(async () => {
+    setErrorMessage(null);
+    if (!isTauriEnvironment()) {
+      setErrorMessage(
+        "L'ouverture du dossier local nécessite l'application desktop Tauri.",
+      );
+      return;
+    }
+
+    try {
+      const openedPath = await openExportDirectory();
+      setNotice(`Dossier d'export ouvert : ${openedPath}`);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "Impossible d'ouvrir le dossier Tagmaster_DJ_Export.",
+      );
+    }
+  }, []);
+
+  // Listen to real-time pipeline progress events from Rust
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+
+    subscribeToPipelineProgress((event) => {
+      if (!active) return;
+      setBatchProgress(event);
+      setTracks((prev) =>
+        prev.map((item) =>
+          item.id === event.trackId
+            ? {
+                ...item,
+                status: event.trackStatus,
+                metadata: event.metadata ?? item.metadata,
+                exportedPath: event.exportedPath ?? item.exportedPath,
+                reviewReason: event.reviewReason ?? item.reviewReason,
+              }
+            : item,
+        ),
+      );
+    }).then((fn) => {
+      if (active) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
+    });
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Native Tauri 2 Drag & Drop listener + Browser preview fallback
   useEffect(() => {
@@ -355,14 +492,20 @@ export function useTrackLibrary() {
   );
 
   const reviewCount = useMemo(
-    () => tracks.filter((item) => item.status === "needs_review").length,
+    () =>
+      tracks.filter(
+        (item) => item.status === "needs_review" || item.status === "failed",
+      ).length,
     [tracks],
   );
 
   return {
     tracks,
     isScanning,
+    isRunningBatch,
     isDraggingOver,
+    batchProgress,
+    lastBatchSummary,
     notice,
     errorMessage,
     clearError: () => setErrorMessage(null),
@@ -374,6 +517,8 @@ export function useTrackLibrary() {
     removeTrack,
     clearTracks,
     lookupTrack,
+    startBatchPipeline,
+    openExportFolder,
     importBrowserFiles,
     browserFileInputRef,
     browserFolderInputRef,

@@ -21,6 +21,7 @@ interface TrackQueueListProps {
   onPickFolder: () => void;
   onPickFiles: () => void;
   isScanning: boolean;
+  isRunningBatch: boolean;
 }
 
 const STATUS_BADGE: Record<
@@ -58,7 +59,9 @@ export function TrackQueueList({
   onPickFolder,
   onPickFiles,
   isScanning,
+  isRunningBatch,
 }: TrackQueueListProps) {
+  const isBusy = isScanning || isRunningBatch;
   const [query, setQuery] = useState("");
   const [selectedExt, setSelectedExt] = useState<string>("ALL");
 
@@ -144,9 +147,9 @@ export function TrackQueueList({
           <button
             type="button"
             onClick={onPickFolder}
-            disabled={isScanning}
+            disabled={isBusy}
             title="Ajouter un autre dossier"
-            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium text-primary"
+            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             <FolderOpen className="h-3.5 w-3.5 text-sky-400" />
             <span>+ Dossier</span>
@@ -154,9 +157,9 @@ export function TrackQueueList({
           <button
             type="button"
             onClick={onPickFiles}
-            disabled={isScanning}
+            disabled={isBusy}
             title="Ajouter des fichiers individuels"
-            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium text-primary"
+            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             <FileAudio2 className="h-3.5 w-3.5 text-indigo-400" />
             <span>+ Fichiers</span>
@@ -164,8 +167,9 @@ export function TrackQueueList({
           <button
             type="button"
             onClick={onClearAll}
+            disabled={isBusy}
             title="Vider la file d'attente"
-            className="flex cursor-pointer items-center gap-1 rounded-full border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-[11.5px] font-medium text-rose-400 transition-colors hover:bg-rose-500/20"
+            className="flex cursor-pointer items-center gap-1 rounded-full border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-[11.5px] font-medium text-rose-400 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
             <span>Vider</span>
@@ -192,7 +196,10 @@ export function TrackQueueList({
         ) : (
           <ul className="flex flex-col gap-1">
             {filteredTracks.map((track, idx) => {
-              const badge = STATUS_BADGE[track.status];
+              const badge =
+                track.status === "completed" && track.exportedPath
+                  ? { label: "Exporté", className: STATUS_BADGE.completed.className }
+                  : STATUS_BADGE[track.status];
               const meta = track.metadata;
               return (
                 <li
@@ -270,6 +277,7 @@ export function TrackQueueList({
 
                   <div className="flex justify-center">
                     <span
+                      title={track.exportedPath ?? track.reviewReason}
                       className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
                     >
                       {badge.label}
@@ -280,7 +288,7 @@ export function TrackQueueList({
                     <button
                       type="button"
                       onClick={() => onLookupTrack(track.id)}
-                      disabled={track.status === "processing"}
+                      disabled={isRunningBatch || track.status === "processing"}
                       title="Tester l'identification Apple Music US (lecture seule, sans modifier le fichier)"
                       aria-label={`Identifier ${track.fileName} via Apple Music US`}
                       className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400 transition-colors hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50"
@@ -295,8 +303,9 @@ export function TrackQueueList({
                     <button
                       type="button"
                       onClick={() => onRemoveTrack(track.id)}
+                      disabled={isRunningBatch}
                       aria-label={`Retirer ${track.fileName}`}
-                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted opacity-60 transition-all hover:bg-rose-500/15 hover:text-rose-400 hover:opacity-100"
+                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted opacity-60 transition-all hover:bg-rose-500/15 hover:text-rose-400 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>

@@ -1,5 +1,9 @@
-import { Sparkles } from "lucide-react";
-import type { ExportMode } from "../../types/track";
+import { FolderOpen, Loader2, Sparkles } from "lucide-react";
+import type {
+  BatchSummary,
+  ExportMode,
+  PipelineProgressEvent,
+} from "../../types/track";
 
 interface FloatingActionDockProps {
   trackCount: number;
@@ -7,6 +11,11 @@ interface FloatingActionDockProps {
   totalSizeLabel: string;
   exportMode: ExportMode;
   notice: string | null;
+  isRunningBatch: boolean;
+  batchProgress: PipelineProgressEvent | null;
+  lastBatchSummary: BatchSummary | null;
+  onRunBatch: () => void;
+  onOpenExportFolder: () => void;
 }
 
 export function FloatingActionDock({
@@ -15,10 +24,44 @@ export function FloatingActionDock({
   totalSizeLabel,
   exportMode,
   notice,
+  isRunningBatch,
+  batchProgress,
+  lastBatchSummary,
+  onRunBatch,
+  onOpenExportFolder,
 }: FloatingActionDockProps) {
+  const progressPercent = isRunningBatch
+    ? (batchProgress?.percent ?? 0)
+    : lastBatchSummary
+      ? 100
+      : 0;
+
+  let progressLabel: string;
+  if (isRunningBatch && batchProgress) {
+    progressLabel = `En cours (${batchProgress.currentIndex} / ${batchProgress.totalTracks} · ${batchProgress.percent} %) — ${batchProgress.currentFileName}`;
+  } else if (isRunningBatch) {
+    progressLabel = "Préparation du lot en cours…";
+  } else if (lastBatchSummary) {
+    const parts = [
+      `${lastBatchSummary.completedCount} exportée${lastBatchSummary.completedCount > 1 ? "s" : ""}`,
+    ];
+    if (lastBatchSummary.needsReviewCount > 0) {
+      parts.push(`${lastBatchSummary.needsReviewCount} à réviser`);
+    }
+    if (lastBatchSummary.failedCount > 0) {
+      parts.push(
+        `${lastBatchSummary.failedCount} erreur${lastBatchSummary.failedCount > 1 ? "s" : ""}`,
+      );
+    }
+    progressLabel = `Terminé : ${parts.join(" · ")}`;
+  } else {
+    progressLabel =
+      notice ?? "Prêt à nettoyer, tagger et exporter sans modifier les originaux";
+  }
+
   return (
     <footer className="liquid-glass flex shrink-0 flex-wrap items-center justify-between gap-4 rounded-[22px] px-5 py-3.5">
-      {/* Left: Queue metrics & last scan notice */}
+      {/* Left: Queue metrics & real-time progress bar */}
       <div className="relative z-10 min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-medium text-primary">
           <span className="tabular-nums">
@@ -42,28 +85,62 @@ export function FloatingActionDock({
           )}
         </div>
 
-        {/* Progress track placeholder ready for Sprint 1 Issue #5 */}
+        {/* Real-time progress bar */}
         <div className="mt-2 flex items-center gap-3">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full w-0 rounded-full bg-gradient-to-r from-sky-400 to-indigo-500 transition-all duration-300" />
+          <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                lastBatchSummary && !isRunningBatch
+                  ? "bg-gradient-to-r from-emerald-400 to-sky-400"
+                  : "bg-gradient-to-r from-sky-400 to-indigo-500"
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
-          <span className="shrink-0 text-[11px] text-muted">
-            {notice ??
-              "Apple Music US & Tagging prêts · Export batch au Bloc 3"}
+          <span
+            className="max-w-[380px] shrink-0 truncate text-[11px] tabular-nums text-muted"
+            title={progressLabel}
+          >
+            {progressLabel}
           </span>
         </div>
       </div>
 
-      {/* Right: Pipeline launch button (wired in Sprint 1 Bloc 3 — Issues #5 & #6) */}
-      <div className="relative z-10 shrink-0">
+      {/* Right: Secondary open export + Primary launch batch */}
+      <div className="relative z-10 flex shrink-0 items-center gap-2.5">
         <button
           type="button"
-          disabled
-          title="L'export non destructif Plat/Dynamique et le traitement par lots seront connectés au Bloc 3 (Issues #5 & #6)"
-          className="liquid-glass-primary flex cursor-not-allowed items-center gap-2 rounded-full px-5 py-2.5 text-[12.5px] font-semibold opacity-65"
+          onClick={onOpenExportFolder}
+          title="Ouvrir le dossier Documents/Tagmaster_DJ_Export"
+          className="liquid-glass-pill flex cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 text-[12.5px] font-medium text-primary"
         >
-          <Sparkles className="h-4 w-4" strokeWidth={2} />
-          <span>Taguer &amp; Exporter (Bloc 3)</span>
+          <FolderOpen className="h-4 w-4 text-sky-400" strokeWidth={1.9} />
+          <span>Ouvrir Export</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onRunBatch}
+          disabled={isRunningBatch || trackCount === 0}
+          title="Lancer l'identification Apple Music US, la Table Rase et l'export sécurisé"
+          className="liquid-glass-primary flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isRunningBatch ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+              <span className="tabular-nums">
+                Traitement{" "}
+                {batchProgress
+                  ? `${batchProgress.currentIndex} / ${batchProgress.totalTracks}`
+                  : "…"}
+              </span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-4 w-4" strokeWidth={2} />
+              <span>Taguer &amp; Exporter</span>
+            </>
+          )}
         </button>
       </div>
     </footer>

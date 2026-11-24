@@ -1,5 +1,6 @@
 import {
   Disc3,
+  ExternalLink,
   FolderOutput,
   Library,
   ListChecks,
@@ -16,6 +17,7 @@ interface SidebarProps {
   exportMode: ExportMode;
   health: HealthStatus | null;
   isTauriRuntime: boolean;
+  onOpenExportFolder: () => void;
 }
 
 export function Sidebar({
@@ -26,6 +28,7 @@ export function Sidebar({
   exportMode,
   health,
   isTauriRuntime,
+  onOpenExportFolder,
 }: SidebarProps) {
   const navItems: {
     id: AppView;
@@ -119,10 +122,18 @@ export function Sidebar({
 
       {/* Bottom: Export destination safety card + Runtime health */}
       <div className="relative z-10 flex flex-col gap-2.5">
-        <div className="rounded-[16px] border border-[var(--content-border)] bg-[var(--content-card-bg)] p-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-primary">
-            <FolderOutput className="h-3.5 w-3.5 text-sky-400" strokeWidth={2} />
-            <span>Destination sécurisée</span>
+        <button
+          type="button"
+          onClick={onOpenExportFolder}
+          title="Cliquer pour ouvrir Documents/Tagmaster_DJ_Export"
+          className="group w-full cursor-pointer rounded-[16px] border border-[var(--content-border)] bg-[var(--content-card-bg)] p-3 text-left transition-colors hover:bg-[var(--content-card-hover)]"
+        >
+          <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-primary">
+            <span className="flex items-center gap-2">
+              <FolderOutput className="h-3.5 w-3.5 text-sky-400" strokeWidth={2} />
+              <span>Destination sécurisée</span>
+            </span>
+            <ExternalLink className="h-3 w-3 text-muted opacity-60 transition-opacity group-hover:opacity-100" />
           </div>
           <p className="mt-1.5 truncate font-mono text-[10.5px] text-secondary">
             Documents/Tagmaster_DJ_Export
@@ -134,7 +145,7 @@ export function Sidebar({
               intacts
             </span>
           </div>
-        </div>
+        </button>
 
         <div className="liquid-glass-pill flex items-center justify-between rounded-full px-3.5 py-2 text-[11px] font-medium">
           <span className="flex items-center gap-2 text-secondary">

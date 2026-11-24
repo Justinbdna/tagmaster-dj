@@ -50,6 +50,7 @@ export interface AudioTrackItem {
   hasProtectedKeyword: boolean;
   status: TrackStatus;
   metadata?: TrackMetadata;
+  exportedPath?: string;
   reviewReason?: string;
 }
 
@@ -76,6 +77,32 @@ export interface MetadataLookupResult {
   metadata?: TrackMetadata;
   reason?: string;
   detectedKeyword?: string;
+}
+
+export interface BatchTrackInput {
+  id: string;
+  sourcePath: string;
+  cachedMetadata?: TrackMetadata;
+}
+
+export interface PipelineProgressEvent {
+  trackId: string;
+  currentIndex: number;
+  totalTracks: number;
+  percent: number;
+  currentFileName: string;
+  trackStatus: TrackStatus;
+  metadata?: TrackMetadata;
+  exportedPath?: string;
+  reviewReason?: string;
+}
+
+export interface BatchSummary {
+  total: number;
+  completedCount: number;
+  needsReviewCount: number;
+  failedCount: number;
+  exportDirectory: string;
 }
 
 export interface PipelineConfig {

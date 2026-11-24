@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import { DragOverlay } from "../components/dropzone/DragOverlay";
 import { DropZoneCard } from "../components/dropzone/DropZoneCard";
@@ -21,6 +21,14 @@ export function WorkspacePage() {
   const { health, isTauriRuntime } = useAppHealth();
   const { theme, setTheme, toggleTheme, glassTint, setGlassTint } = useTheme();
   const library = useTrackLibrary();
+
+  const reviewTracks = useMemo(
+    () =>
+      library.tracks.filter(
+        (t) => t.status === "needs_review" || t.status === "failed",
+      ),
+    [library.tracks],
+  );
 
   return (
     <GlassShell>
@@ -60,6 +68,7 @@ export function WorkspacePage() {
         exportMode={exportMode}
         health={health}
         isTauriRuntime={isTauriRuntime}
+        onOpenExportFolder={() => void library.openExportFolder()}
       />
 
       {/* Main Column */}
@@ -76,7 +85,7 @@ export function WorkspacePage() {
             setActiveView("library");
             void library.pickFolder();
           }}
-          isScanning={library.isScanning}
+          isScanning={library.isScanning || library.isRunningBatch}
         />
 
         {library.errorMessage && (
@@ -114,6 +123,7 @@ export function WorkspacePage() {
                   onPickFolder={() => void library.pickFolder()}
                   onPickFiles={() => void library.pickFiles()}
                   isScanning={library.isScanning}
+                  isRunningBatch={library.isRunningBatch}
                 />
 
                 <FloatingActionDock
@@ -122,13 +132,20 @@ export function WorkspacePage() {
                   totalSizeLabel={library.totalSizeLabel}
                   exportMode={exportMode}
                   notice={library.notice}
+                  isRunningBatch={library.isRunningBatch}
+                  batchProgress={library.batchProgress}
+                  lastBatchSummary={library.lastBatchSummary}
+                  onRunBatch={() => void library.startBatchPipeline(exportMode)}
+                  onOpenExportFolder={() => void library.openExportFolder()}
                 />
               </>
             )}
           </>
         )}
 
-        {activeView === "review" && <ReviewPlaceholderView />}
+        {activeView === "review" && (
+          <ReviewPlaceholderView reviewTracks={reviewTracks} />
+        )}
 
         {activeView === "settings" && (
           <SettingsView

@@ -1,4 +1,4 @@
-import { FolderTree, Layers, Moon, Sun } from "lucide-react";
+import { ArrowLeft, FolderTree, Layers, Moon, Sun } from "lucide-react";
 import type { AppView, ExportMode, ThemeMode } from "../../types/track";
 
 interface TopBarProps {
@@ -7,6 +7,7 @@ interface TopBarProps {
   onChangeExportMode: (mode: ExportMode) => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
+  onBackToLibrary?: () => void;
 }
 
 const VIEW_TITLES: Record<AppView, { title: string; subtitle: string }> = {
@@ -30,17 +31,31 @@ export function TopBar({
   onChangeExportMode,
   theme,
   onToggleTheme,
+  onBackToLibrary,
 }: TopBarProps) {
   const meta = VIEW_TITLES[activeView];
 
   return (
     <header className="liquid-glass flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[22px] px-5 py-3.5">
-      {/* Title & static view hint */}
-      <div className="relative z-10 min-w-0">
-        <h2 className="truncate text-[17px] font-semibold tracking-tight text-primary">
-          {meta.title}
-        </h2>
-        <p className="truncate text-[12px] text-secondary">{meta.subtitle}</p>
+      {/* Left: Focus back button (in review mode) + Title & subtitle */}
+      <div className="relative z-10 flex min-w-0 items-center gap-3.5">
+        {activeView === "review" && onBackToLibrary && (
+          <button
+            type="button"
+            onClick={onBackToLibrary}
+            className="liquid-glass-pill flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium text-primary"
+          >
+            <ArrowLeft className="h-3.5 w-3.5 text-sky-400" />
+            <span>Retour à la Bibliothèque</span>
+          </button>
+        )}
+
+        <div className="min-w-0">
+          <h2 className="truncate text-[17px] font-semibold tracking-tight text-primary">
+            {meta.title}
+          </h2>
+          <p className="truncate text-[12px] text-secondary">{meta.subtitle}</p>
+        </div>
       </div>
 
       {/* Interactive Liquid Glass Controls */}

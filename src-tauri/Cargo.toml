@@ -19,14 +19,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2.8.4"
 walkdir = "2.5.1"
 reqwest = { version = "0.13.5", features = ["charset", "http2", "json", "native-tls", "query", "system-proxy"], default-features = false }
-tokio = { version = "1.54.1", features = ["time", "sync", "macros", "rt"] }
+tokio = { version = "1.54.1", features = ["time", "sync", "macros", "rt", "process"] }
 rand = "0.10.4"
 lofty = "0.25.5"
 regex = "1.13.2"

@@ -68,6 +68,9 @@ export function TrackQueueList({
   const isBusy = isScanning || isRunningBatch;
   const [query, setQuery] = useState("");
   const [selectedExt, setSelectedExt] = useState<string>("ALL");
+  const [brokenArtworkUrls, setBrokenArtworkUrls] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const formatCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -221,10 +224,22 @@ export function TrackQueueList({
                       const artworkSrc = track.localArtworkPath
                         ? toLocalAssetUrl(track.localArtworkPath)
                         : meta?.artworkUrl;
-                      return artworkSrc ? (
+                      const canShowImage =
+                        Boolean(artworkSrc) &&
+                        !brokenArtworkUrls.has(artworkSrc as string);
+                      return canShowImage ? (
                         <img
                           src={artworkSrc}
                           alt={meta?.album ?? track.fileName}
+                          onError={() => {
+                            if (!artworkSrc) return;
+                            setBrokenArtworkUrls((prev) => {
+                              if (prev.has(artworkSrc)) return prev;
+                              const next = new Set(prev);
+                              next.add(artworkSrc);
+                              return next;
+                            });
+                          }}
                           className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
                         />
                       ) : (

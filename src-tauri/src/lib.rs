@@ -8,9 +8,10 @@ pub mod tagger;
 use std::path::PathBuf;
 
 use models::{
-    BatchSummary, BatchTrackInput, ExistingTrackTags, ExportMode, HealthStatus, LookupStatus,
-    ManualExportInput, ManualExportResult, MetadataLookupResult, MetadataSource,
-    PipelineProgressEvent, ScanResult, TrackCandidate, TrackStatus,
+    ApiKeysSettings, ArtworkCandidate, BatchSummary, BatchTrackInput, ExistingTrackTags,
+    ExportMode, HealthStatus, LookupStatus, ManualExportInput, ManualExportResult,
+    MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult, TrackCandidate,
+    TrackStatus,
 };
 use tagger::rules::{RawMetadataInput, normalize_track_metadata};
 use tauri::{Emitter, Manager};
@@ -62,7 +63,7 @@ async fn lookup_track_metadata(source_path: String) -> Result<MetadataLookupResu
     .await
     .unwrap_or_default();
 
-    api::apple_music::search_track(&path, &existing).await
+    api::resolve_track_metadata(&path, &existing).await
 }
 
 #[tauri::command]
@@ -130,8 +131,8 @@ async fn run_batch_pipeline(
 
         let done_percent = ((current_index * 100) / total.max(1)) as u8;
 
-        // 1. Résolution des métadonnées (cache UI si déjà prévisualisé, sinon Apple Music US/UK/FR)
-        let metadata = if let Some(cached) = item.cached_metadata {
+        // 1. Résolution des métadonnées (cache UI si déjà identifié, sinon Apple Music -> fallback yt-dlp)
+        let mut metadata = if let Some(cached) = item.cached_metadata {
             cached
         } else {
             let path_for_read = source_path.clone();
@@ -141,7 +142,7 @@ async fn run_batch_pipeline(
             .await
             .unwrap_or_default();
 
-            match api::apple_music::search_track(&source_path, &existing).await {
+            match api::resolve_track_metadata(&source_path, &existing).await {
                 Ok(lookup)
                     if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
                 {
@@ -190,7 +191,26 @@ async fn run_batch_pipeline(
             }
         };
 
-        // 2. Téléchargement tolérant aux pannes (ou lecture pochette locale validée en révision)
+        // 2. Paroles synchronisées temps réel (LRCLIB sans clé -> SYLT + .lrc) + fallback Genius (.env)
+        if metadata.lyrics.is_none() || metadata.synced_lyrics.is_none() {
+            let file_name_hint = source_path.file_name().and_then(|n| n.to_str());
+            let resolved_lyrics = api::genius::resolve_lyrics_for_track(
+                &metadata.artist,
+                &metadata.title,
+                Some(&metadata.album),
+                file_name_hint,
+                Some(&app),
+            )
+            .await;
+            if metadata.lyrics.is_none() {
+                metadata.lyrics = resolved_lyrics.plain_lyrics;
+            }
+            if metadata.synced_lyrics.is_none() {
+                metadata.synced_lyrics = resolved_lyrics.synced_lyrics;
+            }
+        }
+
+        // 3. Téléchargement tolérant aux pannes (ou lecture pochette locale validée en révision)
         let artwork = if let Some(local_art_path) = item
             .local_artwork_path
             .as_deref()
@@ -284,6 +304,31 @@ async fn search_apple_music_candidates(query: String) -> Result<Vec<TrackCandida
 }
 
 #[tauri::command]
+async fn search_ytdlp_candidates(query: String) -> Result<Vec<TrackCandidate>, String> {
+    api::ytdlp::search_candidates(&query)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn search_artwork_candidates(query: String) -> Result<Vec<ArtworkCandidate>, String> {
+    api::apple_music::search_artwork_candidates(&query).await
+}
+
+#[tauri::command]
+fn get_api_keys_settings(app: tauri::AppHandle) -> Result<ApiKeysSettings, String> {
+    Ok(api::genius::get_api_keys_settings(&app))
+}
+
+#[tauri::command]
+fn save_genius_api_key(
+    app: tauri::AppHandle,
+    api_key: String,
+) -> Result<ApiKeysSettings, String> {
+    api::genius::save_genius_api_key(&app, &api_key)
+}
+
+#[tauri::command]
 async fn export_manual_track(
     app: tauri::AppHandle,
     input: ManualExportInput,
@@ -302,7 +347,7 @@ async fn export_manual_track(
         )
     })?;
 
-    let metadata = normalize_track_metadata(RawMetadataInput {
+    let mut metadata = normalize_track_metadata(RawMetadataInput {
         title,
         artist,
         collection_artist: input
@@ -356,6 +401,24 @@ async fn export_manual_track(
     };
 
     let source_path = PathBuf::from(&input.source_path);
+    if metadata.lyrics.is_none() || metadata.synced_lyrics.is_none() {
+        let file_name_hint = source_path.file_name().and_then(|n| n.to_str());
+        let resolved_lyrics = api::genius::resolve_lyrics_for_track(
+            &metadata.artist,
+            &metadata.title,
+            Some(&metadata.album),
+            file_name_hint,
+            Some(&app),
+        )
+        .await;
+        if metadata.lyrics.is_none() {
+            metadata.lyrics = resolved_lyrics.plain_lyrics;
+        }
+        if metadata.synced_lyrics.is_none() {
+            metadata.synced_lyrics = resolved_lyrics.synced_lyrics;
+        }
+    }
+
     let meta_clone = metadata.clone();
     let exported_path = tauri::async_runtime::spawn_blocking(move || {
         exporter::export_single_track(
@@ -420,7 +483,7 @@ async fn run_batch_lookup(
         .await
         .unwrap_or_default();
 
-        match api::apple_music::search_track(&source_path, &existing).await {
+        match api::resolve_track_metadata(&source_path, &existing).await {
             Ok(lookup)
                 if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
             {
@@ -513,6 +576,10 @@ pub fn run() {
             run_batch_lookup,
             run_batch_pipeline,
             search_apple_music_candidates,
+            search_ytdlp_candidates,
+            search_artwork_candidates,
+            get_api_keys_settings,
+            save_genius_api_key,
             export_manual_track
         ])
         .run(tauri::generate_context!())

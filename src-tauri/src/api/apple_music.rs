@@ -10,7 +10,7 @@
 //! - Respect strict des mots-clés intouchables (§4.3) : ne jamais écraser un Live,
 //!   Remix, Acoustic, Sped Up, Chopped, Instrumental ou Mashup par une version studio.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -22,7 +22,8 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::models::{
-    ExistingTrackTags, LookupStatus, MetadataLookupResult, MetadataSource, TrackCandidate,
+    ArtworkCandidate, ExistingTrackTags, LookupStatus, MetadataLookupResult, MetadataSource,
+    TrackCandidate,
 };
 use crate::tagger::rules::{
     ParsedTrackQuery, RawMetadataInput, build_search_query, clean_filename_stem,
@@ -41,6 +42,7 @@ pub const STOREFRONT_CASCADE: &[&str] = &[
     FRENCH_FALLBACK_STOREFRONT,
 ];
 pub const MAX_FALLBACK_CANDIDATES: usize = 5;
+pub const MAX_ARTWORK_CANDIDATES: usize = 16;
 pub const RATE_LIMIT_MIN_MS: u64 = 1000;
 pub const RATE_LIMIT_MAX_MS: u64 = 2000;
 
@@ -109,6 +111,44 @@ fn rate_limiter() -> &'static Mutex<Option<Instant>> {
     LIMITER.get_or_init(|| Mutex::new(None))
 }
 
+fn artist_id_cache() -> &'static std::sync::Mutex<HashMap<(String, String), Vec<u64>>> {
+    static CACHE: OnceLock<std::sync::Mutex<HashMap<(String, String), Vec<u64>>>> = OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+async fn resolve_artist_ids_with_cache<F, Fut>(
+    cache: &std::sync::Mutex<HashMap<(String, String), Vec<u64>>>,
+    storefront: &str,
+    artist_hint: &str,
+    fetch_ids: F,
+) -> Result<Vec<u64>, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Vec<u64>, String>>,
+{
+    let cache_key = (
+        storefront.trim().to_ascii_uppercase(),
+        normalize_for_match(artist_hint),
+    );
+
+    if !cache_key.1.is_empty()
+        && let Ok(guard) = cache.lock()
+        && let Some(cached) = guard.get(&cache_key)
+    {
+        return Ok(cached.clone());
+    }
+
+    let ids = fetch_ids().await?;
+
+    if !cache_key.1.is_empty()
+        && let Ok(mut guard) = cache.lock()
+    {
+        guard.insert(cache_key, ids.clone());
+    }
+
+    Ok(ids)
+}
+
 /// Garantit un délai aléatoire de 1 à 2 secondes entre deux requêtes Apple Music API.
 async fn enforce_rate_limit() {
     let mut last_request = rate_limiter().lock().await;
@@ -123,15 +163,22 @@ async fn enforce_rate_limit() {
     *last_request = Some(Instant::now());
 }
 
-/// Transforme une URL de miniature iTunes (`100x100bb.jpg`) en pochette HD (`1000x1000bb.jpg`).
-pub fn upgrade_artwork_url_hd(url: &str) -> String {
+/// Redimensionne une URL de pochette iTunes vers une taille carrée cible (ex: `300x300bb.jpg` ou `1000x1000bb.jpg`).
+pub fn upgrade_artwork_url_size(url: &str, size: u32) -> String {
+    let dim_bb = format!("{size}x{size}bb");
+    let dim = format!("{size}x{size}");
     if url.contains("100x100bb") {
-        url.replace("100x100bb", "1000x1000bb")
+        url.replace("100x100bb", &dim_bb)
     } else if url.contains("100x100") {
-        url.replace("100x100", "1000x1000")
+        url.replace("100x100", &dim)
     } else {
         url.to_string()
     }
+}
+
+/// Transforme une URL de miniature iTunes (`100x100bb.jpg`) en pochette HD (`1000x1000bb.jpg`).
+pub fn upgrade_artwork_url_hd(url: &str) -> String {
+    upgrade_artwork_url_size(url, 1000)
 }
 
 fn extract_year(release_date: Option<&str>) -> Option<u32> {
@@ -325,7 +372,11 @@ fn filter_song_tracks(results: Vec<ItunesTrack>) -> Vec<ItunesTrack> {
         .collect()
 }
 
-async fn query_storefront(term: &str, storefront: &str) -> Result<Vec<ItunesTrack>, String> {
+async fn query_storefront_with_limit(
+    term: &str,
+    storefront: &str,
+    limit: &str,
+) -> Result<Vec<ItunesTrack>, String> {
     enforce_rate_limit().await;
 
     let client = http_client()?;
@@ -336,7 +387,7 @@ async fn query_storefront(term: &str, storefront: &str) -> Result<Vec<ItunesTrac
             ("country", storefront),
             ("media", "music"),
             ("entity", "song"),
-            ("limit", "10"),
+            ("limit", limit),
         ])
         .send()
         .await
@@ -357,53 +408,63 @@ async fn query_storefront(term: &str, storefront: &str) -> Result<Vec<ItunesTrac
     Ok(filter_song_tracks(payload.results))
 }
 
+async fn query_storefront(term: &str, storefront: &str) -> Result<Vec<ItunesTrack>, String> {
+    query_storefront_with_limit(term, storefront, "10").await
+}
+
 async fn query_artist_catalog(artist_hint: &str, storefront: &str) -> Result<Vec<ItunesTrack>, String> {
-    enforce_rate_limit().await;
-
     let client = http_client()?;
-    let artist_response = client
-        .get(ITUNES_SEARCH_URL)
-        .query(&[
-            ("term", artist_hint),
-            ("country", storefront),
-            ("media", "music"),
-            ("entity", "musicArtist"),
-            ("limit", "5"),
-        ])
-        .send()
-        .await
-        .map_err(|err| format!("Erreur réseau Apple Music ({storefront}) : {err}"))?;
+    let artist_ids =
+        resolve_artist_ids_with_cache(artist_id_cache(), storefront, artist_hint, || async {
+            enforce_rate_limit().await;
 
-    if !artist_response.status().is_success() {
-        return Err(format!(
-            "API Apple Music ({storefront}) a répondu avec le statut HTTP {}",
-            artist_response.status()
-        ));
-    }
+            let artist_response = client
+                .get(ITUNES_SEARCH_URL)
+                .query(&[
+                    ("term", artist_hint),
+                    ("country", storefront),
+                    ("media", "music"),
+                    ("entity", "musicArtist"),
+                    ("limit", "5"),
+                ])
+                .send()
+                .await
+                .map_err(|err| format!("Erreur réseau Apple Music ({storefront}) : {err}"))?;
 
-    let artist_payload: ItunesArtistSearchResponse = artist_response
-        .json()
-        .await
-        .map_err(|err| format!("Réponse JSON artiste Apple Music invalide : {err}"))?;
-
-    let mut artist_ids: Vec<u64> = Vec::new();
-    for entry in artist_payload.results {
-        if entry.wrapper_type.as_deref() != Some("artist") {
-            continue;
-        }
-        let Some(id) = entry.artist_id else {
-            continue;
-        };
-        let Some(name) = entry.artist_name.as_deref() else {
-            continue;
-        };
-        if token_overlap_score(artist_hint, name) >= 0.75 && !artist_ids.contains(&id) {
-            artist_ids.push(id);
-            if artist_ids.len() == 2 {
-                break;
+            if !artist_response.status().is_success() {
+                return Err(format!(
+                    "API Apple Music ({storefront}) a répondu avec le statut HTTP {}",
+                    artist_response.status()
+                ));
             }
-        }
-    }
+
+            let artist_payload: ItunesArtistSearchResponse = artist_response
+                .json()
+                .await
+                .map_err(|err| format!("Réponse JSON artiste Apple Music invalide : {err}"))?;
+
+            let mut ids: Vec<u64> = Vec::new();
+            for entry in artist_payload.results {
+                if entry.wrapper_type.as_deref() != Some("artist") {
+                    continue;
+                }
+                let Some(id) = entry.artist_id else {
+                    continue;
+                };
+                let Some(name) = entry.artist_name.as_deref() else {
+                    continue;
+                };
+                if token_overlap_score(artist_hint, name) >= 0.75 && !ids.contains(&id) {
+                    ids.push(id);
+                    if ids.len() == 2 {
+                        break;
+                    }
+                }
+            }
+
+            Ok(ids)
+        })
+        .await?;
 
     let mut collected_songs: Vec<ItunesTrack> = Vec::new();
     for id in artist_ids {
@@ -481,6 +542,9 @@ fn itunes_track_to_candidate(
         is_compilation: normalized.is_compilation,
         storefront: storefront.to_string(),
         confidence_score: confidence_score.clamp(0.0, 1.0),
+        source: Some(MetadataSource::AppleMusic),
+        platform: None,
+        duration_secs: None,
     }
 }
 
@@ -823,11 +887,104 @@ pub async fn search_candidates_freeform(raw_query: &str) -> Result<Vec<TrackCand
     ))
 }
 
-/// Télécharge la pochette HD (JPEG / PNG) prête à être intégrée dans les tags audio.
+fn strip_version_keywords_for_artwork(query: &str) -> String {
+    let cleaned = query
+        .split_whitespace()
+        .filter(|tok| {
+            let norm = normalize_for_match(tok);
+            !matches!(
+                norm.as_str(),
+                "instrumental"
+                    | "remix"
+                    | "live"
+                    | "acoustic"
+                    | "sped"
+                    | "up"
+                    | "slowed"
+                    | "reverb"
+                    | "nightcore"
+                    | "chopped"
+                    | "mashup"
+                    | "version"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    cleaned
+}
+
+fn collect_artwork_tracks(
+    tracks: Vec<ItunesTrack>,
+    storefront: &str,
+    seen_urls: &mut HashSet<String>,
+    results: &mut Vec<ArtworkCandidate>,
+) {
+    for track in tracks {
+        let Some(raw_100) = track
+            .artwork_url100
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+        else {
+            continue;
+        };
+
+        if !seen_urls.insert(raw_100.to_string()) {
+            continue;
+        }
+
+        results.push(ArtworkCandidate {
+            artwork_url: upgrade_artwork_url_size(raw_100, 1000),
+            preview_url: upgrade_artwork_url_size(raw_100, 300),
+            title: track.track_name.unwrap_or_default(),
+            artist: track.artist_name.unwrap_or_default(),
+            album: track.collection_name.unwrap_or_default(),
+            year: extract_year(track.release_date.as_deref()),
+            storefront: storefront.to_string(),
+        });
+
+        if results.len() >= MAX_ARTWORK_CANDIDATES {
+            break;
+        }
+    }
+}
+
+/// Recherche jusqu'à 16 pochettes carrées HD Apple Music pour remplacer une miniature 16:9 ou absente.
+pub async fn search_artwork_candidates(raw_query: &str) -> Result<Vec<ArtworkCandidate>, String> {
+    let parsed = build_freeform_query(raw_query);
+    if parsed.search_term.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut seen_urls: HashSet<String> = HashSet::new();
+    let mut results: Vec<ArtworkCandidate> = Vec::new();
+
+    for &storefront in STOREFRONT_CASCADE {
+        let tracks = query_storefront_with_limit(&parsed.search_term, storefront, "25").await?;
+        collect_artwork_tracks(tracks, storefront, &mut seen_urls, &mut results);
+        if results.len() >= MAX_ARTWORK_CANDIDATES {
+            return Ok(results);
+        }
+    }
+
+    // Passe complémentaire sans mot-clé de version (Instrumental / Remix / Slowed...) si peu de résultats
+    if results.len() < 8 {
+        let base_query = strip_version_keywords_for_artwork(&parsed.search_term);
+        if !base_query.is_empty() && base_query != parsed.search_term {
+            let tracks = query_storefront_with_limit(&base_query, DEFAULT_STOREFRONT, "25").await?;
+            collect_artwork_tracks(tracks, DEFAULT_STOREFRONT, &mut seen_urls, &mut results);
+        }
+    }
+
+    Ok(results)
+}
+
+/// Télécharge la pochette HD (JPEG / PNG / WEBP) prête à être intégrée dans les tags audio.
 pub async fn download_artwork(url: &str) -> Result<DownloadedArtwork, String> {
     let client = http_client()?;
     let response = client
         .get(url)
+        .header(reqwest::header::ACCEPT, "image/*,*/*;q=0.8")
         .send()
         .await
         .map_err(|err| format!("Erreur lors du téléchargement de la pochette : {err}"))?;
@@ -844,7 +1001,7 @@ pub async fn download_artwork(url: &str) -> Result<DownloadedArtwork, String> {
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("image/jpeg")
-        .to_string();
+        .to_ascii_lowercase();
 
     let bytes = response
         .bytes()
@@ -859,6 +1016,10 @@ pub async fn download_artwork(url: &str) -> Result<DownloadedArtwork, String> {
     let mime_type = if content_type.contains("png") || bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47])
     {
         "image/png".to_string()
+    } else if content_type.contains("webp")
+        || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+    {
+        "image/webp".to_string()
     } else {
         "image/jpeg".to_string()
     };
@@ -1102,5 +1263,50 @@ mod tests {
             ranked.windows(2).all(|w| w[0].confidence_score >= w[1].confidence_score),
             "candidates must be sorted descending by confidence"
         );
+    }
+
+    #[test]
+    fn caches_artist_ids_per_storefront_and_normalized_name() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let cache = std::sync::Mutex::new(HashMap::new());
+        let network_calls = AtomicUsize::new(0);
+
+        let first = rt
+            .block_on(resolve_artist_ids_with_cache(&cache, "FR", "Shay", || {
+                network_calls.fetch_add(1, Ordering::SeqCst);
+                async { Ok(vec![542_901_234]) }
+            }))
+            .expect("first lookup should succeed");
+        assert_eq!(first, vec![542_901_234]);
+        assert_eq!(network_calls.load(Ordering::SeqCst), 1);
+
+        // Même storefront + nom normalisé différent par casse/espaces -> cache hit (0 appel réseau)
+        let second = rt
+            .block_on(resolve_artist_ids_with_cache(
+                &cache,
+                "fr",
+                "  SHAY  ",
+                || {
+                    network_calls.fetch_add(1, Ordering::SeqCst);
+                    async { Ok(vec![999_999]) }
+                },
+            ))
+            .expect("cache hit should succeed");
+        assert_eq!(second, vec![542_901_234]);
+        assert_eq!(network_calls.load(Ordering::SeqCst), 1);
+
+        // Storefront différent -> cache miss légitime (1 nouvel appel réseau)
+        let third = rt
+            .block_on(resolve_artist_ids_with_cache(&cache, "US", "Shay", || {
+                network_calls.fetch_add(1, Ordering::SeqCst);
+                async { Ok(vec![111_222]) }
+            }))
+            .expect("different storefront should fetch cleanly");
+        assert_eq!(third, vec![111_222]);
+        assert_eq!(network_calls.load(Ordering::SeqCst), 2);
     }
 }

@@ -58,6 +58,10 @@ pub struct TrackMetadata {
     pub artwork_url: Option<String>,
     pub is_compilation: bool,
     pub source: Option<MetadataSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lyrics: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_lyrics: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +97,8 @@ pub struct ExistingTrackTags {
     pub album: Option<String>,
     pub tag_count: usize,
     pub has_dirty_tags: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_artwork_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -120,6 +126,12 @@ pub struct TrackCandidate {
     pub is_compilation: bool,
     pub storefront: String,
     pub confidence_score: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<MetadataSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +210,26 @@ pub struct BatchSummary {
     pub needs_review_count: usize,
     pub failed_count: usize,
     pub export_directory: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkCandidate {
+    pub artwork_url: String,
+    pub preview_url: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub year: Option<u32>,
+    pub storefront: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeysSettings {
+    pub genius_api_key: String,
+    pub has_genius_api_key: bool,
+    pub env_file_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

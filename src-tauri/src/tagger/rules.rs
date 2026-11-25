@@ -17,6 +17,9 @@ pub const PROTECTED_KEYWORDS: &[&str] = &[
     "live",
     "acoustic",
     "sped up",
+    "slowed",
+    "reverb",
+    "nightcore",
     "chopped",
     "instrumental",
     "remix",
@@ -140,9 +143,17 @@ fn noise_brackets_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"(?i)[\(\[](?:official\s*(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)|clip\s*officiel|audio\s*officiel|vid[ée]o\s*officielle|lyrics?|paroles|audio|(?:full\s*)?hd|hq|4k|320\s*kbps|explicit|clean|music\s*video|visualizer)[\)\]]",
+            r"(?i)[\(\[](?:official\s*(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)|clip\s*officiel|audio\s*officiel|vid[ée]o\s*officielle|lyrics?|paroles|audio|(?:full\s*)?hd|hq|4k|320\s*kbps|explicit|clean|music\s*video|visualizer|exclus?|unreleased|tiktok|prod\.?(?:\s+by)?\s+[^\)\]]+)[\)\]]",
         )
         .expect("valid noise regex")
+    })
+}
+
+fn leading_unreleased_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)^\s*[!¡]*\s*(?:unreleased|exclus?)\s*(?:[-–—:]\s*|\s+)")
+            .expect("valid leading unreleased regex")
     })
 }
 
@@ -154,7 +165,7 @@ fn disc_folder_re() -> &'static Regex {
 fn title_feat_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"(?i)\s*[\(\[]?\s*(?:feat\.?|ft\.?|featuring)\s+([^\)\]]+)[\)\]]?")
+        Regex::new(r"(?i)(?:\s*[\(\[]\s*|\s+)(?:feat\.?|ft\.?|featuring)\s+([^\)\]]+)[\)\]]?")
             .expect("valid feat regex")
     })
 }
@@ -304,7 +315,14 @@ pub fn clean_track_label(raw: &str) -> String {
     let without_noise = noise_brackets_re().replace_all(&normalized, " ");
     let without_copy = strip_duplicate_copy_suffix(&without_noise);
     let without_underscores = without_copy.replace('_', " ");
-    let without_prefix = leading_track_num_re().replace(&without_underscores, "");
+    let without_unreleased = if let Some(m) = leading_unreleased_re().find(&without_underscores)
+        && !without_underscores[m.end()..].trim().is_empty()
+    {
+        &without_underscores[m.end()..]
+    } else {
+        without_underscores.as_str()
+    };
+    let without_prefix = leading_track_num_re().replace(without_unreleased, "");
     let cleaned = collapse_spaces(&without_prefix);
     if cleaned.is_empty() {
         collapse_spaces(&without_underscores)
@@ -729,6 +747,8 @@ pub fn normalize_track_metadata(raw: RawMetadataInput) -> TrackMetadata {
         artwork_url: raw.artwork_url,
         is_compilation,
         source: Some(raw.source),
+        lyrics: None,
+        synced_lyrics: None,
     }
 }
 
@@ -750,9 +770,42 @@ mod tests {
             detect_protected_keyword("SZA - Kill Bill (Sped Up).mp3"),
             Some("sped up")
         );
+        assert_eq!(
+            detect_protected_keyword("CLM-RST - still love you (Slowed).mp3"),
+            Some("slowed")
+        );
+        assert_eq!(
+            detect_protected_keyword("Magdalena Bay - Killshot (Slowed + Reverb).mp3"),
+            Some("slowed")
+        );
+        assert_eq!(
+            detect_protected_keyword("Be Like A Woman (Slowed Down Version).mp3"),
+            Some("slowed")
+        );
+        assert_eq!(
+            detect_protected_keyword("Song (Nightcore).mp3"),
+            Some("nightcore")
+        );
         // Faux positifs à éviter
         assert_eq!(detect_protected_keyword("Olivia Rodrigo - Drivers License.mp3"), None);
         assert_eq!(detect_protected_keyword("Adele - Deliverance.mp3"), None);
+        assert_eq!(detect_protected_keyword("Niall Horan - Slow Hands.mp3"), None);
+    }
+
+    #[test]
+    fn cleans_unreleased_and_exclus_prefixes_before_splitting_artist_title() {
+        let parsed = build_search_query(
+            Path::new("/Users/jujutravail/Music/_! Unreleased - Kim-Petras - Deeper.mp3"),
+            &ExistingTrackTags::default(),
+        );
+        assert_eq!(parsed.artist_hint.as_deref(), Some("Kim-Petras"));
+        assert_eq!(parsed.title_hint, "Deeper");
+        assert_eq!(parsed.search_term, "Kim-Petras Deeper");
+
+        assert_eq!(
+            clean_filename_stem("[EXCLUS] La Fève - FINIS-LES REMIX [Prod. @B.June].mp3"),
+            "La Fève - FINIS-LES REMIX"
+        );
     }
 
     #[test]
@@ -777,6 +830,26 @@ mod tests {
         assert_eq!(meta.artist, "Bad Gyal");
         assert_eq!(meta.album_artist, "Bad Gyal");
         assert_eq!(meta.album, "La Joia");
+
+        // Ne jamais interpréter la fin d'un mot en "-ft" (Daft, Left, Soft) comme "ft."
+        let daft = normalize_track_metadata(RawMetadataInput {
+            title: "Get Lucky (Daft Punk Remix)".to_string(),
+            artist: "Daft Punk".to_string(),
+            collection_artist: None,
+            album: None,
+            track_number: None,
+            track_total: None,
+            disc_number: None,
+            disc_total: None,
+            year: Some(2013),
+            genre: None,
+            artwork_url: None,
+            is_compilation: false,
+            source: MetadataSource::YtDlp,
+        });
+        assert_eq!(daft.title, "Get Lucky (Daft Punk Remix)");
+        assert_eq!(strip_feat_from_title("Left & Right"), "Left & Right");
+        assert_eq!(strip_feat_from_title("Soft Touch"), "Soft Touch");
     }
 
     #[test]

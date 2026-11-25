@@ -74,6 +74,16 @@ pub fn export_single_track(
         return Err(err);
     }
 
+    if let Some(synced) = metadata
+        .synced_lyrics
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let lrc_path = dest_path.with_extension("lrc");
+        let _ = fs::write(lrc_path, format!("{synced}\n"));
+    }
+
     Ok(dest_path)
 }
 
@@ -144,6 +154,8 @@ mod tests {
             artwork_url: None,
             is_compilation: false,
             source: Some(MetadataSource::AppleMusic),
+            lyrics: None,
+            synced_lyrics: Some("[00:05.00] Linea sincronizada".to_string()),
         };
 
         let exported_path = export_single_track(
@@ -182,6 +194,13 @@ mod tests {
         assert_eq!(clean_tag.title().as_deref(), Some(long_full_title.as_str()));
         assert_eq!(clean_tag.get_string(ItemKey::AlbumArtist), Some("Bad Gyal"));
         assert_eq!(clean_tag.comment(), None);
+
+        let lrc_path = exported_path.with_extension("lrc");
+        assert!(lrc_path.is_file(), "sidecar .lrc file should be exported alongside track");
+        assert_eq!(
+            fs::read_to_string(&lrc_path).unwrap(),
+            "[00:05.00] Linea sincronizada\n"
+        );
 
         let _ = fs::remove_dir_all(&base_dir);
     }

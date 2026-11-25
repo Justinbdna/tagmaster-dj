@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  ApiKeysSettings,
+  ArtworkCandidate,
   BatchSummary,
   BatchTrackInput,
   ExistingTrackTags,
@@ -69,6 +71,28 @@ export async function searchAppleMusicCandidates(
   query: string,
 ): Promise<TrackCandidate[]> {
   return invoke<TrackCandidate[]>("search_apple_music_candidates", { query });
+}
+
+export async function searchYtdlpCandidates(
+  query: string,
+): Promise<TrackCandidate[]> {
+  return invoke<TrackCandidate[]>("search_ytdlp_candidates", { query });
+}
+
+export async function searchArtworkCandidates(
+  query: string,
+): Promise<ArtworkCandidate[]> {
+  return invoke<ArtworkCandidate[]>("search_artwork_candidates", { query });
+}
+
+export async function getApiKeysSettings(): Promise<ApiKeysSettings> {
+  return invoke<ApiKeysSettings>("get_api_keys_settings");
+}
+
+export async function saveGeniusApiKey(
+  apiKey: string,
+): Promise<ApiKeysSettings> {
+  return invoke<ApiKeysSettings>("save_genius_api_key", { apiKey });
 }
 
 export async function exportManualTrack(

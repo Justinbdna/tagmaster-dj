@@ -27,3 +27,10 @@ export function formatDuration(seconds: number): string {
   }
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
+
+export function formatDuplicateBadgeLabel(count: number): string {
+  if (count <= 2) return "Doublon";
+  if (count === 3) return "Triplé";
+  if (count === 4) return "Quadruplé";
+  return `×${count} copies`;
+}

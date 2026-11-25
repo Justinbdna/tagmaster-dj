@@ -2,9 +2,12 @@ import { useCallback, useMemo, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import { DragOverlay } from "../components/dropzone/DragOverlay";
 import { DropZoneCard } from "../components/dropzone/DropZoneCard";
+import { DuplicateComparatorView } from "../components/duplicates/DuplicateComparatorView";
 import { GlassShell } from "../components/layout/GlassShell";
 import { Sidebar } from "../components/layout/Sidebar";
 import { TopBar } from "../components/layout/TopBar";
+import { NetworkResilienceModal } from "../components/modals/NetworkResilienceModal";
+import { SessionResumeModal } from "../components/modals/SessionResumeModal";
 import { FloatingActionDock } from "../components/progress/FloatingActionDock";
 import { ReviewQueueView } from "../components/review/ReviewQueueView";
 import { SettingsView } from "../components/settings/SettingsView";
@@ -29,11 +32,16 @@ export function WorkspacePage() {
   const [selectedReviewTrackId, setSelectedReviewTrackId] = useState<
     string | null
   >(null);
+  const [selectedDuplicateGroupKey, setSelectedDuplicateGroupKey] = useState<
+    string | null
+  >(null);
   const [toast, setToast] = useState<ToastPayload | null>(null);
 
   const { health } = useAppHealth();
   const { theme, setTheme, toggleTheme, glassTint, setGlassTint } = useTheme();
-  const library = useTrackLibrary();
+  const library = useTrackLibrary(exportMode, setExportMode);
+
+  const isFocusMode = activeView === "review" || activeView === "duplicates";
 
   const showToast = useCallback((message: string) => {
     setToast({ id: Date.now(), message });
@@ -42,6 +50,11 @@ export function WorkspacePage() {
   const openTrackInReview = useCallback((trackId: string) => {
     setSelectedReviewTrackId(trackId);
     setActiveView("review");
+  }, []);
+
+  const openDuplicateComparator = useCallback((groupKey?: string) => {
+    setSelectedDuplicateGroupKey(groupKey ?? null);
+    setActiveView("duplicates");
   }, []);
 
   const reviewTracks = useMemo(
@@ -67,7 +80,7 @@ export function WorkspacePage() {
   const handleRunBatchExport = useCallback(
     async (options?: { forceAll?: boolean }) => {
       const summary = await library.startBatchPipeline(exportMode, options);
-      if (summary && summary.completedCount > 0) {
+      if (summary && !summary.interruptedByNetwork && summary.completedCount > 0) {
         showToast(
           `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
         );
@@ -75,6 +88,41 @@ export function WorkspacePage() {
     },
     [exportMode, library.startBatchPipeline, showToast],
   );
+
+  const handleResumeSession = useCallback(async () => {
+    const resumed = await library.resumePreviousSession();
+    if (resumed) {
+      showToast("Session précédente restaurée");
+    }
+  }, [library.resumePreviousSession, showToast]);
+
+  const handleStartNewSession = useCallback(async () => {
+    await library.startNewSession();
+    showToast("Nouvelle session démarrée");
+  }, [library.startNewSession, showToast]);
+
+  const handleRetryInterruptedBatch = useCallback(async () => {
+    const summary = await library.retryInterruptedBatch();
+    if (
+      summary &&
+      !summary.interruptedByNetwork &&
+      summary.exportDirectory &&
+      summary.completedCount > 0
+    ) {
+      showToast(
+        `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+      );
+    }
+  }, [library.retryInterruptedBatch, showToast]);
+
+  const handleExportReadyFromInterruption = useCallback(async () => {
+    const summary = await library.exportReadyTracksFromInterruption();
+    if (summary && summary.completedCount > 0) {
+      showToast(
+        `Export partiel terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+      );
+    }
+  }, [library.exportReadyTracksFromInterruption, showToast]);
 
   const handleTrackValidatedFromReview = useCallback(
     (trackId: string, metadata: TrackMetadata, localArtworkPath?: string) => {
@@ -138,6 +186,30 @@ export function WorkspacePage() {
     ],
   );
 
+  const handleKeepDuplicateTrack = useCallback(
+    (_keepId: string, dropId: string, keptLabel: string) => {
+      library.removeTracks([dropId]);
+      showToast(`${keptLabel} conservée — doublon retiré de la file`);
+    },
+    [library.removeTracks, showToast],
+  );
+
+  const handleKeepBothDuplicates = useCallback(
+    (idA: string, idB: string) => {
+      library.dismissDuplicatePair(idA, idB);
+      showToast("Les deux versions ont été conservées dans la file");
+    },
+    [library.dismissDuplicatePair, showToast],
+  );
+
+  const handleDeleteBothDuplicates = useCallback(
+    (idA: string, idB: string) => {
+      library.removeTracks([idA, idB]);
+      showToast("Les deux pistes ont été retirées de la file");
+    },
+    [library.removeTracks, showToast],
+  );
+
   return (
     <GlassShell>
       {/* Hidden browser-only fallback inputs (inactive in Tauri desktop runtime) */}
@@ -167,13 +239,14 @@ export function WorkspacePage() {
       {/* Full-window Liquid Glass Drag & Drop overlay */}
       <DragOverlay visible={library.isDraggingOver} />
 
-      {/* Left Floating Liquid Glass Sidebar (hidden in Review Focus Mode) */}
-      {activeView !== "review" && (
+      {/* Left Floating Liquid Glass Sidebar (hidden in Review & Duplicate Focus Modes) */}
+      {!isFocusMode && (
         <Sidebar
           activeView={activeView}
           onSelectView={setActiveView}
           trackCount={library.tracks.length}
           reviewCount={library.reviewCount}
+          duplicateGroupCount={library.duplicateGroups.length}
           health={health}
           onOpenExportFolder={() => void library.openExportFolder()}
         />
@@ -189,21 +262,22 @@ export function WorkspacePage() {
           onToggleTheme={toggleTheme}
           onBackToLibrary={() => {
             setSelectedReviewTrackId(null);
+            setSelectedDuplicateGroupKey(null);
             setActiveView("library");
           }}
         />
 
         {library.errorMessage && (
-          <div className="liquid-glass flex shrink-0 items-center justify-between gap-3 rounded-[16px] border-rose-400/35 px-4 py-2.5 text-[12.5px] text-rose-300">
-            <span className="relative z-10 flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+          <div className="modal-surface text-semantic-danger flex shrink-0 items-center justify-between gap-3 rounded-[16px] border-rose-500/35 px-4 py-2.5 text-[12.5px] font-medium">
+            <span className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{library.errorMessage}</span>
             </span>
             <button
               type="button"
               onClick={library.clearError}
               aria-label="Fermer l'alerte"
-              className="relative z-10 cursor-pointer rounded-full p-1 hover:bg-white/10"
+              className="cursor-pointer rounded-full p-1 hover:bg-black/10 dark:hover:bg-white/10"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -222,6 +296,9 @@ export function WorkspacePage() {
               <>
                 <TrackQueueList
                   tracks={library.tracks}
+                  duplicateGroups={library.duplicateGroups}
+                  duplicateGroupByTrackId={library.duplicateGroupByTrackId}
+                  onOpenDuplicates={openDuplicateComparator}
                   onRemoveTrack={library.removeTrack}
                   onLookupTrack={(id) => void library.lookupTrack(id)}
                   onOpenReviewTrack={openTrackInReview}
@@ -230,6 +307,7 @@ export function WorkspacePage() {
                   onPickFiles={() => void library.pickFiles()}
                   isScanning={library.isScanning}
                   isRunningBatch={library.isRunningBatch}
+                  isResumedSession={library.isResumedSession}
                 />
 
                 <FloatingActionDock
@@ -268,6 +346,23 @@ export function WorkspacePage() {
           />
         )}
 
+        {activeView === "duplicates" && (
+          <DuplicateComparatorView
+            groups={library.duplicateGroups}
+            tracks={library.tracks}
+            selectedGroupKey={selectedDuplicateGroupKey}
+            dismissedPairs={library.dismissedDuplicatePairs}
+            onSelectGroup={setSelectedDuplicateGroupKey}
+            onKeepTrack={handleKeepDuplicateTrack}
+            onKeepBoth={handleKeepBothDuplicates}
+            onDeleteBoth={handleDeleteBothDuplicates}
+            onBackToLibrary={() => {
+              setSelectedDuplicateGroupKey(null);
+              setActiveView("library");
+            }}
+          />
+        )}
+
         {activeView === "settings" && (
           <SettingsView
             theme={theme}
@@ -280,10 +375,26 @@ export function WorkspacePage() {
         )}
       </main>
 
+      {/* Session Resume Modal (#13) */}
+      <SessionResumeModal
+        summary={library.pendingSessionSummary}
+        onResume={() => void handleResumeSession()}
+        onStartFresh={() => void handleStartNewSession()}
+      />
+
+      {/* Network Resilience 3-Choice Modal (#13) */}
+      <NetworkResilienceModal
+        interruption={library.networkInterruption}
+        onRetry={() => void handleRetryInterruptedBatch()}
+        onExportReady={() => void handleExportReadyFromInterruption()}
+        onSaveAndQuit={() => void library.quitAfterSaving()}
+        onDismiss={library.dismissNetworkInterruption}
+      />
+
       <ToastNotification
         toast={toast}
         onClose={() => setToast(null)}
-        fullWidthCentered={activeView === "review"}
+        fullWidthCentered={isFocusMode}
       />
     </GlassShell>
   );

@@ -1,4 +1,5 @@
 import {
+  Copy,
   Disc3,
   ExternalLink,
   FolderOutput,
@@ -13,6 +14,7 @@ interface SidebarProps {
   onSelectView: (view: AppView) => void;
   trackCount: number;
   reviewCount: number;
+  duplicateGroupCount: number;
   health: HealthStatus | null;
   onOpenExportFolder: () => void;
 }
@@ -22,6 +24,7 @@ export function Sidebar({
   onSelectView,
   trackCount,
   reviewCount,
+  duplicateGroupCount,
   health,
   onOpenExportFolder,
 }: SidebarProps) {
@@ -30,6 +33,7 @@ export function Sidebar({
     label: string;
     icon: typeof Library;
     badge?: number;
+    badgeClass?: string;
   }[] = [
     {
       id: "library",
@@ -43,6 +47,17 @@ export function Sidebar({
       icon: ListChecks,
       badge: reviewCount > 0 ? reviewCount : undefined,
     },
+    ...(duplicateGroupCount > 0
+      ? [
+          {
+            id: "duplicates" as AppView,
+            label: "Doublons A/B",
+            icon: Copy,
+            badge: duplicateGroupCount,
+            badgeClass: "badge-duplicate border",
+          },
+        ]
+      : []),
     {
       id: "settings",
       label: "Paramètres",
@@ -97,7 +112,11 @@ export function Sidebar({
                 </span>
 
                 {item.badge !== undefined && (
-                  <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-sky-400">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${
+                      item.badgeClass ?? "bg-sky-500/20 text-sky-400"
+                    }`}
+                  >
                     {item.badge}
                   </span>
                 )}

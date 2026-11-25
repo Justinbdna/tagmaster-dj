@@ -112,7 +112,7 @@ export function FloatingActionDock({
           {protectedCount > 0 && (
             <>
               <span className="text-muted">·</span>
-              <span className="text-amber-400">
+              <span className="text-semantic-warning font-semibold">
                 {protectedCount} version{protectedCount > 1 ? "s" : ""} protégée
                 {protectedCount > 1 ? "s" : ""}
               </span>

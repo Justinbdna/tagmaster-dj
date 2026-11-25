@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import {
+  CheckCircle2,
+  Copy,
   FileAudio2,
   FolderOpen,
   Loader2,
@@ -12,11 +14,21 @@ import {
   X,
 } from "lucide-react";
 import { toLocalAssetUrl } from "../../services/tauriBridge";
-import type { AudioTrackItem, TrackStatus } from "../../types/track";
-import { formatFileSize } from "../../utils/format";
+import type {
+  AudioTrackItem,
+  DuplicateGroup,
+  TrackStatus,
+} from "../../types/track";
+import {
+  formatDuplicateBadgeLabel,
+  formatFileSize,
+} from "../../utils/format";
 
 interface TrackQueueListProps {
   tracks: AudioTrackItem[];
+  duplicateGroups: DuplicateGroup[];
+  duplicateGroupByTrackId: ReadonlyMap<string, DuplicateGroup>;
+  onOpenDuplicates: (groupKey?: string) => void;
   onRemoveTrack: (id: string) => void;
   onLookupTrack: (id: string) => void;
   onOpenReviewTrack: (id: string) => void;
@@ -25,6 +37,7 @@ interface TrackQueueListProps {
   onPickFiles: () => void;
   isScanning: boolean;
   isRunningBatch: boolean;
+  isResumedSession?: boolean;
 }
 
 const STATUS_BADGE: Record<
@@ -56,6 +69,9 @@ const STATUS_BADGE: Record<
 
 export function TrackQueueList({
   tracks,
+  duplicateGroups,
+  duplicateGroupByTrackId,
+  onOpenDuplicates,
   onRemoveTrack,
   onLookupTrack,
   onOpenReviewTrack,
@@ -64,6 +80,7 @@ export function TrackQueueList({
   onPickFiles,
   isScanning,
   isRunningBatch,
+  isResumedSession = false,
 }: TrackQueueListProps) {
   const isBusy = isScanning || isRunningBatch;
   const [query, setQuery] = useState("");
@@ -127,7 +144,7 @@ export function TrackQueueList({
             onClick={() => setSelectedExt("ALL")}
             className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
               selectedExt === "ALL"
-                ? "bg-sky-500/20 text-sky-400"
+                ? "badge-info border"
                 : "bg-[var(--content-card-bg)] text-secondary hover:text-primary"
             }`}
           >
@@ -140,7 +157,7 @@ export function TrackQueueList({
               onClick={() => setSelectedExt(ext)}
               className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                 selectedExt === ext
-                  ? "bg-sky-500/20 text-sky-400"
+                  ? "badge-info border"
                   : "bg-[var(--content-card-bg)] text-secondary hover:text-primary"
               }`}
             >
@@ -151,6 +168,20 @@ export function TrackQueueList({
 
         {/* Quick queue actions */}
         <div className="flex items-center gap-1.5">
+          {duplicateGroups.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onOpenDuplicates(duplicateGroups[0]?.groupKey)}
+              disabled={isBusy}
+              title="Ouvrir le Comparateur audio A/B pour arbitrer les doublons détectés"
+              className="badge-duplicate flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              <span>
+                Doublons ({duplicateGroups.length})
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onPickFolder}
@@ -176,7 +207,7 @@ export function TrackQueueList({
             onClick={onClearAll}
             disabled={isBusy}
             title="Vider la file d'attente"
-            className="flex cursor-pointer items-center gap-1 rounded-full border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-[11.5px] font-medium text-rose-400 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-semantic-danger flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-[11.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
             <span>Vider</span>
@@ -210,6 +241,10 @@ export function TrackQueueList({
               const isReviewable =
                 track.status === "needs_review" || track.status === "failed";
               const meta = track.metadata;
+              const dupGroup = duplicateGroupByTrackId.get(track.id);
+              const showGreenCheck =
+                track.status === "completed" &&
+                (Boolean(track.exportedPath) || isResumedSession);
               return (
                 <li
                   key={track.id}
@@ -266,6 +301,22 @@ export function TrackQueueList({
                             Version protégée
                           </span>
                         )}
+                        {dupGroup && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenDuplicates(dupGroup.groupKey)}
+                            disabled={isBusy}
+                            title={`Ouvrir le Comparateur A/B (${dupGroup.trackIds.length} fichiers)`}
+                            className="badge-duplicate inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Copy className="h-2.5 w-2.5" />
+                            <span>
+                              {formatDuplicateBadgeLabel(
+                                dupGroup.trackIds.length,
+                              )}
+                            </span>
+                          </button>
+                        )}
                       </div>
 
                       {meta ? (
@@ -280,7 +331,11 @@ export function TrackQueueList({
                         </p>
                       ) : track.reviewReason ? (
                         <p
-                          className="truncate text-[11px] text-amber-400/90"
+                          className={`truncate text-[11px] font-medium ${
+                            track.status === "failed"
+                              ? "text-semantic-danger"
+                              : "text-semantic-warning"
+                          }`}
                           title={track.reviewReason}
                         >
                           {track.reviewReason}
@@ -314,9 +369,12 @@ export function TrackQueueList({
                     ) : (
                       <span
                         title={track.exportedPath ?? track.reviewReason}
-                        className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
                       >
-                        {badge.label}
+                        {showGreenCheck && (
+                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                        )}
+                        <span>{badge.label}</span>
                       </span>
                     )}
                   </div>
@@ -330,7 +388,7 @@ export function TrackQueueList({
                       aria-label={`Éditer ${track.fileName}`}
                       className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                         isReviewable
-                          ? "text-amber-400 hover:bg-amber-500/20"
+                          ? "text-semantic-warning hover:bg-amber-500/15"
                           : "text-secondary hover:bg-white/10 hover:text-primary"
                       }`}
                     >

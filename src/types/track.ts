@@ -8,7 +8,7 @@ export type ThemeMode = "dark" | "light";
 
 export type GlassTint = "clear" | "tinted";
 
-export type AppView = "library" | "review" | "settings";
+export type AppView = "library" | "review" | "duplicates" | "settings";
 
 export type TrackStatus =
   | "pending"
@@ -57,6 +57,9 @@ export interface AudioTrackItem {
   reviewReason?: string;
   candidates?: TrackCandidate[];
   lastQueryUsed?: string;
+  durationSecs?: number;
+  bitrateKbps?: number;
+  sampleRateHz?: number;
 }
 
 export interface ScanResult {
@@ -177,6 +180,44 @@ export interface BatchSummary {
   needsReviewCount: number;
   failedCount: number;
   exportDirectory: string;
+  interruptedByNetwork?: boolean;
+  networkErrorMessage?: string;
+  remainingCount?: number;
+}
+
+export interface SessionCache {
+  version: number;
+  updatedAtMs: number;
+  exportMode: ExportMode;
+  tracks: AudioTrackItem[];
+}
+
+export interface SessionCacheSummary {
+  hasSession: boolean;
+  isUnfinished: boolean;
+  updatedAtMs: number;
+  exportMode: ExportMode;
+  totalTracks: number;
+  exportedCount: number;
+  identifiedCount: number;
+  needsReviewCount: number;
+  remainingCount: number;
+  cacheFilePath: string;
+}
+
+export interface DuplicateGroup {
+  groupKey: string;
+  displayLabel: string;
+  matchReason: string;
+  trackIds: string[];
+}
+
+export interface NetworkInterruptionState {
+  action: "lookup" | "export";
+  errorMessage: string;
+  remainingCount: number;
+  readyToExportCount: number;
+  exportedCount: number;
 }
 
 export interface QueueStats {

@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Tagmaster DJ",
@@ -17,7 +18,12 @@
         "height": 780,
         "minWidth": 960,
         "minHeight": 640,
-        "center": true
+        "center": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["liquidGlassClear", "hudWindow", "mica"],
+          "state": "active"
+        }
       }
     ],
     "security": {

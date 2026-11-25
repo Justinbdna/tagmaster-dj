@@ -38,6 +38,8 @@ export interface TrackMetadata {
   artworkUrl?: string;
   isCompilation: boolean;
   source?: MetadataSource;
+  lyrics?: string;
+  syncedLyrics?: string;
 }
 
 export interface AudioTrackItem {
@@ -70,6 +72,7 @@ export interface ExistingTrackTags {
   album?: string;
   tagCount: number;
   hasDirtyTags: boolean;
+  embeddedArtworkPath?: string;
 }
 
 export type LookupStatus = "matched" | "protected_version" | "not_found";
@@ -89,6 +92,27 @@ export interface TrackCandidate {
   isCompilation: boolean;
   storefront: string;
   confidenceScore: number;
+  source?: MetadataSource;
+  platform?: string;
+  durationSecs?: number;
+}
+
+export type QuickSearchSource = "apple_music" | "yt_dlp";
+
+export interface ArtworkCandidate {
+  artworkUrl: string;
+  previewUrl: string;
+  title: string;
+  artist: string;
+  album: string;
+  year?: number;
+  storefront: string;
+}
+
+export interface ApiKeysSettings {
+  geniusApiKey: string;
+  hasGeniusApiKey: boolean;
+  envFilePath: string;
 }
 
 export interface MetadataLookupResult {

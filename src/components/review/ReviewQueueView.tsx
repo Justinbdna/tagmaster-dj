@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Check,
   ImagePlus,
+  Link2,
   ListChecks,
   Loader2,
   Music,
@@ -13,6 +14,7 @@ import {
   Trash2,
   Upload,
   Wand2,
+  X,
 } from "lucide-react";
 import {
   exportManualTrack,
@@ -20,16 +22,20 @@ import {
   openArtworkFileDialog,
   readTrackTags,
   searchAppleMusicCandidates,
+  searchArtworkCandidates,
+  searchYtdlpCandidates,
   toLocalAssetUrl,
 } from "../../services/tauriBridge";
 import type {
+  ArtworkCandidate,
   AudioTrackItem,
   ExportMode,
   ManualExportResult,
+  QuickSearchSource,
   TrackCandidate,
   TrackMetadata,
 } from "../../types/track";
-import { formatFileSize } from "../../utils/format";
+import { formatDuration, formatFileSize } from "../../utils/format";
 import { LocalAudioPlayer } from "./LocalAudioPlayer";
 
 interface ReviewQueueViewProps {
@@ -42,7 +48,11 @@ interface ReviewQueueViewProps {
     metadata: TrackMetadata,
     localArtworkPath?: string,
   ) => void;
-  onTrackResolved: (trackId: string, result: ManualExportResult) => void;
+  onTrackResolved: (
+    trackId: string,
+    result: ManualExportResult,
+    localArtworkPath?: string,
+  ) => void;
   onBackToLibrary: () => void;
 }
 
@@ -61,6 +71,9 @@ interface ManualFormState {
 
 const PROTECTED_KEYWORD_LABELS: ReadonlyArray<[RegExp, string]> = [
   [/\bsped\s+up\b/i, "Sped Up"],
+  [/\bslowed\b/i, "Slowed"],
+  [/\breverb\b/i, "Reverb"],
+  [/\bnightcore\b/i, "Nightcore"],
   [/\binstrumental\b/i, "Instrumental"],
   [/\bacoustic\b/i, "Acoustic"],
   [/\bchopped\b/i, "Chopped"],
@@ -142,7 +155,12 @@ function stripExtensionAndDuplicateSuffix(raw: string): string {
   }
 
   return current
+    .replace(
+      /[\(\[](?:exclus?|unreleased|tiktok|prod\.?(?:\s+by)?\s+[^\)\]]+)[\)\]]/gi,
+      " ",
+    )
     .replace(/_/g, " ")
+    .replace(/^\s*[!¡]*\s*(?:unreleased|exclus?)\s*(?:[-–—:]\s*|\s+)/i, "")
     .replace(/^\s*(?:\d{1,2}\s*[-.]\s*)?\d{1,3}\s*[-._)\]]*\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -236,7 +254,7 @@ function candidateToMetadata(candidate: TrackCandidate): TrackMetadata {
     genre: candidate.genre,
     artworkUrl: candidate.artworkUrl,
     isCompilation: candidate.isCompilation,
-    source: "apple_music",
+    source: candidate.source ?? "apple_music",
   };
 }
 
@@ -257,12 +275,25 @@ export function ReviewQueueView({
   }, [reviewTracks, selectedTrackId]);
 
   const [quickQuery, setQuickQuery] = useState("");
+  const [searchSource, setSearchSource] =
+    useState<QuickSearchSource>("apple_music");
   const [suggestions, setSuggestions] = useState<TrackCandidate[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [exportingKey, setExportingKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [protectedLabel, setProtectedLabel] = useState<string | null>(null);
   const [isFormHighlighted, setIsFormHighlighted] = useState(false);
+  const [showArtworkPicker, setShowArtworkPicker] = useState(false);
+  const [artworkQuery, setArtworkQuery] = useState("");
+  const [artworkResults, setArtworkResults] = useState<ArtworkCandidate[]>([]);
+  const [isSearchingArtwork, setIsSearchingArtwork] = useState(false);
+  const [artworkPickerError, setArtworkPickerError] = useState<string | null>(
+    null,
+  );
+  const [directArtworkUrl, setDirectArtworkUrl] = useState("");
+  const [isApplyingArtworkUrl, setIsApplyingArtworkUrl] = useState(false);
+  const [directUrlError, setDirectUrlError] = useState<string | null>(null);
+  const [previewLoadError, setPreviewLoadError] = useState(false);
   const [form, setForm] = useState<ManualFormState>({
     title: "",
     artist: "",
@@ -277,6 +308,7 @@ export function ReviewQueueView({
   });
 
   const quickQueryDirtyRef = useRef(false);
+  const rightPaneRef = useRef<HTMLElement | null>(null);
   const manualFormRef = useRef<HTMLFormElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
@@ -298,9 +330,19 @@ export function ReviewQueueView({
 
     quickQueryDirtyRef.current = false;
     setIsFormHighlighted(false);
+    setShowArtworkPicker(false);
+    setArtworkQuery("");
+    setArtworkResults([]);
+    setArtworkPickerError(null);
+    setDirectArtworkUrl("");
+    setIsApplyingArtworkUrl(false);
+    setDirectUrlError(null);
+    setPreviewLoadError(false);
     setSuggestions(activeTrack.candidates ?? []);
     setActionError(null);
+    setSearchSource(activeTrack.hasProtectedKeyword ? "yt_dlp" : "apple_music");
     setProtectedLabel(detectProtectedKeywordLabel(activeTrack.fileName));
+    rightPaneRef.current?.scrollTo({ top: 0, behavior: "instant" });
 
     // Si la piste possède déjà des métadonnées résolues (Identifié / Exporté),
     // pré-remplir directement depuis celles-ci sans écraser avec les anciens tags disque.
@@ -313,7 +355,7 @@ export function ReviewQueueView({
 
       const cleanTitle = existingMeta.title
         .replace(
-          /\s*[\(\[]?\s*(?:feat\.?|ft\.?|featuring)\s+[^\)\]]+[\)\]]?/gi,
+          /(?:\s*[\(\[]\s*|\s+)(?:feat\.?|ft\.?|featuring)\s+[^\)\]]+[\)\]]?/gi,
           "",
         )
         .trim();
@@ -378,16 +420,33 @@ export function ReviewQueueView({
           }
         }
 
-        setForm((prev) => ({
-          ...prev,
-          title: existing.title?.trim() || prev.title,
-          artist: existing.artist?.trim() || prev.artist,
-          albumArtist:
-            existing.albumArtist?.trim() ||
-            existing.artist?.trim() ||
-            prev.albumArtist,
-          album: existing.album?.trim() || prev.album,
-        }));
+        const rawAlbumArtist = existing.albumArtist?.trim() || "";
+        const rawTitle = existing.title?.trim() || "";
+        const validExistingAlbumArtist =
+          rawAlbumArtist &&
+          rawAlbumArtist.toLowerCase() !== rawTitle.toLowerCase()
+            ? rawAlbumArtist
+            : "";
+
+        setForm((prev) => {
+          const nextLocal =
+            !prev.localArtworkPath &&
+            !prev.artworkUrl &&
+            existing.embeddedArtworkPath
+              ? existing.embeddedArtworkPath
+              : prev.localArtworkPath;
+          return {
+            ...prev,
+            title: rawTitle || prev.title,
+            artist: existing.artist?.trim() || prev.artist,
+            albumArtist:
+              validExistingAlbumArtist ||
+              existing.artist?.trim() ||
+              prev.albumArtist,
+            album: existing.album?.trim() || prev.album,
+            localArtworkPath: nextLocal,
+          };
+        });
       })
       .catch(() => {
         // Ignore read error when file has no readable tags
@@ -432,7 +491,9 @@ export function ReviewQueueView({
     if (!cleaned || isSearching) return;
     if (!isTauriEnvironment()) {
       setActionError(
-        "La recherche Apple Music nécessite l'application desktop Tauri.",
+        searchSource === "yt_dlp"
+          ? "La recherche YouTube / SoundCloud nécessite l'application desktop Tauri."
+          : "La recherche Apple Music nécessite l'application desktop Tauri.",
       );
       return;
     }
@@ -440,7 +501,10 @@ export function ReviewQueueView({
     setActionError(null);
     setIsSearching(true);
     try {
-      const results = await searchAppleMusicCandidates(cleaned);
+      const results =
+        searchSource === "yt_dlp"
+          ? await searchYtdlpCandidates(cleaned)
+          : await searchAppleMusicCandidates(cleaned);
       setSuggestions(results);
       if (results.length === 0) {
         setActionError(
@@ -451,7 +515,9 @@ export function ReviewQueueView({
       setActionError(
         err instanceof Error
           ? err.message
-          : "Erreur pendant la recherche rapide Apple Music.",
+          : searchSource === "yt_dlp"
+            ? "Erreur pendant la recherche YouTube / SoundCloud via yt-dlp."
+            : "Erreur pendant la recherche rapide Apple Music.",
       );
     } finally {
       setIsSearching(false);
@@ -493,7 +559,7 @@ export function ReviewQueueView({
         discTotal: candidate.discTotal,
         isCompilation: candidate.isCompilation,
         artworkUrl: candidate.artworkUrl,
-        source: "apple_music",
+        source: candidate.source ?? "apple_music",
       });
       onTrackResolved(activeTrack.id, result);
     } catch (err) {
@@ -519,6 +585,7 @@ export function ReviewQueueView({
       nextTitle = `${candidate.title} (${protectedLabel})`;
     }
 
+    setPreviewLoadError(false);
     setForm({
       title: nextTitle,
       artist: candidate.artist,
@@ -564,6 +631,7 @@ export function ReviewQueueView({
     try {
       const selected = await openArtworkFileDialog();
       if (selected) {
+        setPreviewLoadError(false);
         setForm((prev) => ({ ...prev, localArtworkPath: selected }));
       }
     } catch (err) {
@@ -572,6 +640,119 @@ export function ReviewQueueView({
           ? err.message
           : "Impossible d'ouvrir le sélecteur d'image.",
       );
+    }
+  };
+
+  const handleApplyDirectArtworkUrl = async () => {
+    const trimmed = directArtworkUrl.trim();
+    if (!trimmed || isApplyingArtworkUrl) return;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      setDirectUrlError(
+        "URL invalide. Utilisez un lien commençant par https:// ou http://.",
+      );
+      return;
+    }
+
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      setDirectUrlError("Seules les URLs http:// ou https:// sont acceptées.");
+      return;
+    }
+
+    setDirectUrlError(null);
+    setIsApplyingArtworkUrl(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        const timeoutId = window.setTimeout(() => {
+          img.src = "";
+          reject(new Error("Délai dépassé lors du chargement de l'image."));
+        }, 8000);
+        img.onload = () => {
+          window.clearTimeout(timeoutId);
+          resolve();
+        };
+        img.onerror = () => {
+          window.clearTimeout(timeoutId);
+          reject(
+            new Error(
+              "Impossible de charger cette image — vérifiez qu'il s'agit d'un lien direct (JPG, PNG, WEBP).",
+            ),
+          );
+        };
+        img.src = parsed.toString();
+      });
+
+      setPreviewLoadError(false);
+      setForm((prev) => ({
+        ...prev,
+        artworkUrl: parsed.toString(),
+        localArtworkPath: "",
+      }));
+      setShowArtworkPicker(false);
+    } catch (err) {
+      setDirectUrlError(
+        err instanceof Error
+          ? err.message
+          : "Impossible de charger cette URL d'image.",
+      );
+    } finally {
+      setIsApplyingArtworkUrl(false);
+    }
+  };
+
+  const handleSearchArtworks = async (overrideQuery?: string) => {
+    const cleaned = (overrideQuery ?? artworkQuery).trim();
+    if (!cleaned || isSearchingArtwork) return;
+    if (!isTauriEnvironment()) {
+      setArtworkPickerError(
+        "La recherche de pochettes nécessite l'application desktop Tauri.",
+      );
+      return;
+    }
+
+    setArtworkPickerError(null);
+    setIsSearchingArtwork(true);
+    try {
+      const covers = await searchArtworkCandidates(cleaned);
+      setArtworkResults(covers);
+      if (covers.length === 0) {
+        setArtworkPickerError(
+          `Aucune pochette carrée trouvée pour « ${cleaned} ».`,
+        );
+      }
+    } catch (err) {
+      setArtworkPickerError(
+        err instanceof Error
+          ? err.message
+          : "Erreur pendant la recherche de pochettes.",
+      );
+    } finally {
+      setIsSearchingArtwork(false);
+    }
+  };
+
+  const handleToggleArtworkPicker = () => {
+    const nextOpen = !showArtworkPicker;
+    setShowArtworkPicker(nextOpen);
+    if (nextOpen) {
+      const defaultQuery =
+        [form.artist.trim(), form.title.trim()].filter(Boolean).join(" ") ||
+        quickQuery.trim();
+      setArtworkQuery(defaultQuery);
+      setDirectArtworkUrl(form.artworkUrl || "");
+      setDirectUrlError(null);
+      setArtworkPickerError(null);
+      if (
+        artworkResults.length === 0 &&
+        defaultQuery &&
+        isTauriEnvironment()
+      ) {
+        void handleSearchArtworks(defaultQuery);
+      }
     }
   };
 
@@ -644,7 +825,11 @@ export function ReviewQueueView({
         localArtworkPath: form.localArtworkPath || undefined,
         source: "manual",
       });
-      onTrackResolved(activeTrack.id, result);
+      onTrackResolved(
+        activeTrack.id,
+        result,
+        form.localArtworkPath || undefined,
+      );
     } catch (err) {
       setActionError(
         err instanceof Error
@@ -724,7 +909,10 @@ export function ReviewQueueView({
       </aside>
 
       {/* Right Column: Interactive 3-level resolution workspace */}
-      <section className="content-surface custom-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto rounded-[24px] p-5">
+      <section
+        ref={rightPaneRef}
+        className="content-surface custom-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto rounded-[24px] p-5"
+      >
         {/* Persistent Back Button */}
         <div className="flex items-center justify-between gap-2">
           <button
@@ -785,14 +973,47 @@ export function ReviewQueueView({
 
         {/* Mécanisme 2 : Barre de recherche rapide à la volée */}
         <div className="rounded-[18px] border border-[var(--content-border)] bg-[var(--content-card-bg)] p-4">
-          <div className="mb-2.5 flex items-center justify-between gap-2">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
               <Search className="h-4 w-4 text-sky-400" />
-              <h4>Recherche rapide à la volée (Apple Music US / UK / FR)</h4>
+              <h4>
+                {searchSource === "yt_dlp"
+                  ? "Recherche rapide à la volée (YouTube / SoundCloud via yt-dlp)"
+                  : "Recherche rapide à la volée (Apple Music US / UK / FR)"}
+              </h4>
             </div>
-            <span className="text-[11px] text-muted">
-              Retirez les mots parasites et relancez
-            </span>
+
+            {/* Source toggle selector */}
+            <div
+              role="group"
+              aria-label="Source de recherche rapide"
+              className="flex items-center gap-1 rounded-full border border-[var(--content-border)] bg-[var(--content-bg)] p-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => setSearchSource("apple_music")}
+                disabled={isSearching}
+                className={`cursor-pointer rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
+                  searchSource === "apple_music"
+                    ? "bg-sky-500/20 text-sky-400 shadow-xs"
+                    : "text-secondary hover:text-primary"
+                }`}
+              >
+                Apple Music
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchSource("yt_dlp")}
+                disabled={isSearching}
+                className={`cursor-pointer rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
+                  searchSource === "yt_dlp"
+                    ? "bg-rose-500/20 text-rose-300 shadow-xs"
+                    : "text-secondary hover:text-primary"
+                }`}
+              >
+                YouTube / SoundCloud
+              </button>
+            </div>
           </div>
 
           <form
@@ -806,7 +1027,11 @@ export function ReviewQueueView({
                 quickQueryDirtyRef.current = true;
                 setQuickQuery(e.target.value);
               }}
-              placeholder="Ex: Bad Bunny NUEVAYoL ou Shay - T mimi"
+              placeholder={
+                searchSource === "yt_dlp"
+                  ? "Ex: Daft Punk Get Lucky Remix ou Bad Bunny Live"
+                  : "Ex: Bad Bunny NUEVAYoL ou Shay - T mimi"
+              }
               className="min-w-0 flex-1 rounded-full border border-[var(--content-border)] bg-[var(--content-bg)] px-4 py-2 text-[12.5px] text-primary placeholder:text-muted focus:border-sky-400/60 focus:outline-none"
             />
             <button
@@ -853,10 +1078,21 @@ export function ReviewQueueView({
                 const key = `candidate-${idx}`;
                 const isBusy = exportingKey === key;
                 const confidencePct = Math.round(cand.confidenceScore * 100);
+                const platformLabel = cand.platform ?? cand.storefront;
+                const isYtDlp =
+                  cand.source === "yt_dlp" ||
+                  platformLabel === "YouTube" ||
+                  platformLabel === "SoundCloud";
+                const sourceBadgeClass =
+                  platformLabel === "YouTube"
+                    ? "badge-youtube"
+                    : platformLabel === "SoundCloud"
+                      ? "badge-soundcloud"
+                      : "badge-info";
 
                 return (
                   <li
-                    key={`${cand.storefront}-${cand.artist}-${cand.title}-${cand.album}-${idx}`}
+                    key={`${platformLabel}-${cand.artist}-${cand.title}-${cand.album}-${idx}`}
                     className="rounded-[14px] border border-[var(--content-border)] bg-[var(--content-bg)] p-3.5"
                   >
                     <div className="flex items-start gap-3">
@@ -877,14 +1113,21 @@ export function ReviewQueueView({
                           <p className="text-[13.5px] font-semibold leading-snug text-primary">
                             {cand.artist} — {cand.title}
                           </p>
-                          <span className="shrink-0 rounded-full border badge-info px-2 py-0.5 text-[10px] font-semibold">
-                            {cand.storefront} · {confidencePct}%
+                          <span
+                            className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${sourceBadgeClass}`}
+                          >
+                            {isYtDlp
+                              ? `${platformLabel} · ${confidencePct}%`
+                              : `${cand.storefront} · ${confidencePct}%`}
                           </span>
                         </div>
                         <p className="mt-1 text-[11.5px] text-secondary">
                           {cand.album}
                           {cand.year ? ` (${cand.year})` : ""}
                           {cand.genre ? ` · ${cand.genre}` : ""}
+                          {cand.durationSecs
+                            ? ` · ${formatDuration(cand.durationSecs)}`
+                            : ""}
                         </p>
                       </div>
                     </div>
@@ -956,10 +1199,11 @@ export function ReviewQueueView({
             {/* Artwork picker column */}
             <div className="flex w-full shrink-0 flex-col items-center gap-2.5 lg:w-[156px]">
               <div className="flex h-36 w-36 items-center justify-center overflow-hidden rounded-[16px] border border-[var(--content-border)] bg-[var(--content-bg)]">
-                {previewArtworkSrc ? (
+                {previewArtworkSrc && !previewLoadError ? (
                   <img
                     src={previewArtworkSrc}
                     alt="Aperçu pochette"
+                    onError={() => setPreviewLoadError(true)}
                     className="h-full w-full object-cover"
                   />
                 ) : (
@@ -979,6 +1223,20 @@ export function ReviewQueueView({
                 >
                   <ImagePlus className="h-3.5 w-3.5 text-sky-400" />
                   <span>Choisir une image…</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleToggleArtworkPicker}
+                  disabled={exportingKey !== null}
+                  className={`flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium transition-all ${
+                    showArtworkPicker
+                      ? "liquid-glass-active text-primary"
+                      : "liquid-glass-pill text-secondary hover:text-primary"
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Pochette HD en ligne</span>
                 </button>
 
                 {(form.localArtworkPath || form.artworkUrl) && (
@@ -1138,6 +1396,172 @@ export function ReviewQueueView({
               </div>
             </div>
           </div>
+
+          {showArtworkPicker && (
+            <div className="mt-4 rounded-[14px] border border-[var(--content-border)] bg-[var(--content-bg)] p-3.5">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[12px] font-semibold text-primary">
+                  <Sparkles className="h-3.5 w-3.5 text-sky-400" />
+                  <span>
+                    Sélecteur de pochettes HD (jusqu&apos;à 16 résultats) ou URL
+                    directe
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowArtworkPicker(false)}
+                  aria-label="Fermer le sélecteur de pochettes"
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted hover:bg-white/10 hover:text-primary"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Direct web image URL input */}
+              <div className="mb-2.5 flex flex-col gap-1.5">
+                <div className="flex gap-2">
+                  <div className="relative flex min-w-0 flex-1 items-center">
+                    <Link2 className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-muted" />
+                    <input
+                      type="url"
+                      value={directArtworkUrl}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => {
+                        setDirectUrlError(null);
+                        setDirectArtworkUrl(e.target.value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleApplyDirectArtworkUrl();
+                        }
+                      }}
+                      placeholder="Coller une URL d'image directe (https://...)"
+                      className={`min-w-0 w-full rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] py-1.5 pl-8 text-[12px] text-primary placeholder:text-muted focus:border-sky-400/60 focus:outline-none ${
+                        directArtworkUrl ? "pr-8" : "pr-3.5"
+                      }`}
+                    />
+                    {directArtworkUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDirectArtworkUrl("");
+                          setDirectUrlError(null);
+                        }}
+                        aria-label="Effacer l'URL d'image"
+                        title="Effacer l'URL"
+                        className="absolute right-2 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:bg-white/10 hover:text-primary"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleApplyDirectArtworkUrl()}
+                    disabled={isApplyingArtworkUrl || !directArtworkUrl.trim()}
+                    className="liquid-glass-pill flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11.5px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isApplyingArtworkUrl ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    )}
+                    <span>Appliquer</span>
+                  </button>
+                </div>
+                {directUrlError && (
+                  <p className="text-[11.5px] text-amber-400">
+                    {directUrlError}
+                  </p>
+                )}
+              </div>
+
+              {/* Apple Music 16-cover search */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={artworkQuery}
+                  onChange={(e) => setArtworkQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleSearchArtworks();
+                    }
+                  }}
+                  placeholder="Rechercher sur Apple Music (Ex: Kim Petras, SOPHIE…)"
+                  className="min-w-0 flex-1 rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] px-3.5 py-1.5 text-[12px] text-primary placeholder:text-muted focus:border-sky-400/60 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSearchArtworks()}
+                  disabled={isSearchingArtwork || !artworkQuery.trim()}
+                  className="liquid-glass-pill flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11.5px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSearchingArtwork ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5 text-sky-400" />
+                  )}
+                  <span>Chercher</span>
+                </button>
+              </div>
+
+              {artworkPickerError && (
+                <p className="mt-2 text-[11.5px] text-amber-400">
+                  {artworkPickerError}
+                </p>
+              )}
+
+              {artworkResults.length > 0 && (
+                <div className="custom-scrollbar mt-3 grid max-h-72 grid-cols-2 gap-2.5 overflow-y-auto pr-1 sm:grid-cols-4">
+                  {artworkResults.map((cover, idx) => {
+                    const isPicked =
+                      !form.localArtworkPath &&
+                      form.artworkUrl === cover.artworkUrl;
+                    return (
+                      <button
+                        key={`${cover.artworkUrl}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setPreviewLoadError(false);
+                          setForm((prev) => ({
+                            ...prev,
+                            artworkUrl: cover.artworkUrl,
+                            localArtworkPath: "",
+                          }));
+                          setShowArtworkPicker(false);
+                        }}
+                        title={`${cover.artist} — ${cover.album || cover.title}${cover.year ? ` (${cover.year})` : ""}`}
+                        className={`group flex cursor-pointer flex-col gap-1.5 rounded-[12px] border p-2 text-left transition-all ${
+                          isPicked
+                            ? "border-sky-400 bg-sky-500/10"
+                            : "border-[var(--content-border)] bg-[var(--content-card-bg)] hover:border-sky-400/60 hover:bg-[var(--content-card-hover)]"
+                        }`}
+                      >
+                        <div className="aspect-square w-full overflow-hidden rounded-[8px] border border-[var(--content-border)]">
+                          <img
+                            src={cover.previewUrl}
+                            alt={cover.album || cover.title}
+                            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-[11px] font-semibold text-primary">
+                            {cover.album || cover.title}
+                          </p>
+                          <p className="truncate text-[10px] text-muted">
+                            {cover.artist}
+                            {cover.year ? ` · ${cover.year}` : ""}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2.5">
             <button

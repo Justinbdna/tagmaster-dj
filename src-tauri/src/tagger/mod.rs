@@ -7,15 +7,22 @@
 pub mod rules;
 pub mod sanitizer;
 
+use std::borrow::Cow;
 use std::path::Path;
 
+use lofty::TextEncoding;
 use lofty::config::WriteOptions;
+use lofty::id3::v2::{
+    BinaryFrame, Frame, FrameId, Id3v2Tag, SyncTextContentType, SynchronizedTextFrame,
+    TimestampFormat,
+};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use lofty::tag::{Tag, TagType};
 
 use crate::api::apple_music::DownloadedArtwork;
+use crate::api::genius::{parse_lrc_lines, strip_lrc_timestamps};
 use crate::models::{ExistingTrackTags, TrackMetadata};
 use crate::tagger::rules::looks_like_dirty_tag;
 
@@ -28,6 +35,46 @@ fn non_blank(value: Option<String>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
+}
+
+fn fnv1a_64(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &byte in data {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Option<String> {
+    let data = picture.data();
+    if data.is_empty() {
+        return None;
+    }
+
+    let size_bytes = std::fs::metadata(source_path)
+        .ok()
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let mut key_buf = source_path.to_string_lossy().as_bytes().to_vec();
+    key_buf.extend_from_slice(&size_bytes.to_le_bytes());
+    let hash = fnv1a_64(&key_buf);
+
+    let ext = match picture.mime_type() {
+        Some(MimeType::Png) => "png",
+        Some(MimeType::Unknown(m)) if m.to_ascii_lowercase().contains("webp") => "webp",
+        _ => "jpg",
+    };
+
+    let cache_dir = std::env::temp_dir().join("tagmaster_dj_embedded_covers");
+    std::fs::create_dir_all(&cache_dir).ok()?;
+    let dest_path = cache_dir.join(format!("cover_{hash:016x}.{ext}"));
+
+    if !dest_path.is_file() {
+        std::fs::write(&dest_path, data).ok()?;
+    }
+
+    Some(dest_path.to_string_lossy().into_owned())
 }
 
 /// Lecture seule des tags existants sur un fichier source (ne modifie jamais le fichier).
@@ -62,6 +109,7 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
     let mut artist = None;
     let mut album_artist = None;
     let mut album = None;
+    let mut embedded_picture: Option<&Picture> = None;
 
     for tag in primary.into_iter().chain(all_tags.iter()) {
         if title.is_none() {
@@ -76,10 +124,25 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
         if album.is_none() {
             album = non_blank(tag.album().map(|s| s.into_owned()));
         }
-        if title.is_some() && artist.is_some() && album_artist.is_some() && album.is_some() {
+        if embedded_picture.is_none() {
+            embedded_picture = tag
+                .pictures()
+                .iter()
+                .find(|p| p.pic_type() == PictureType::CoverFront && !p.data().is_empty())
+                .or_else(|| tag.pictures().iter().find(|p| !p.data().is_empty()));
+        }
+        if title.is_some()
+            && artist.is_some()
+            && album_artist.is_some()
+            && album.is_some()
+            && embedded_picture.is_some()
+        {
             break;
         }
     }
+
+    let embedded_artwork_path =
+        embedded_picture.and_then(|pic| extract_embedded_artwork_to_temp(path, pic));
 
     Ok(ExistingTrackTags {
         title,
@@ -88,6 +151,7 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
         album,
         tag_count,
         has_dirty_tags,
+        embedded_artwork_path,
     })
 }
 
@@ -181,6 +245,65 @@ pub fn write_clean_tags(
             .mime_type(mime)
             .build();
         tag.push_picture(picture);
+    }
+
+    let plain_lyrics = metadata
+        .lyrics
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            metadata
+                .synced_lyrics
+                .as_deref()
+                .map(strip_lrc_timestamps)
+                .filter(|s| !s.is_empty())
+        });
+
+    let synced_raw = metadata
+        .synced_lyrics
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    if primary_type == TagType::Id3v2 {
+        if let Some(plain) = plain_lyrics {
+            tag.insert_text(ItemKey::UnsyncLyrics, plain);
+        }
+
+        if let Some(lrc) = synced_raw {
+            let sylt_entries = parse_lrc_lines(lrc);
+            if !sylt_entries.is_empty() {
+                let mut id3v2: Id3v2Tag = tag.into();
+                let sylt = SynchronizedTextFrame::new(
+                    TextEncoding::UTF8,
+                    *b"XXX",
+                    TimestampFormat::MS,
+                    SyncTextContentType::Lyrics,
+                    None,
+                    sylt_entries,
+                );
+                let bytes = sylt.as_bytes(WriteOptions::default()).map_err(|err| {
+                    format!(
+                        "Impossible d'encoder les paroles synchronisées SYLT pour {} : {err}",
+                        target_path.display()
+                    )
+                })?;
+                id3v2.insert(Frame::Binary(BinaryFrame::new(
+                    FrameId::Valid(Cow::Borrowed("SYLT")),
+                    bytes,
+                )));
+                return id3v2.save_to_path(target_path, WriteOptions::default()).map_err(|err| {
+                    format!(
+                        "Impossible d'écrire les nouveaux tags ID3v2 (+SYLT) sur {} : {err}",
+                        target_path.display()
+                    )
+                });
+            }
+        }
+    } else if let Some(best_lyrics) = synced_raw.map(str::to_string).or(plain_lyrics) {
+        tag.insert_text(ItemKey::Lyrics, best_lyrics);
     }
 
     tag.save_to_path(target_path, WriteOptions::default())
@@ -304,6 +427,8 @@ mod tests {
             artwork_url: None,
             is_compilation: false,
             source: Some(MetadataSource::AppleMusic),
+            lyrics: None,
+            synced_lyrics: None,
         };
 
         let fake_jpeg = DownloadedArtwork {
@@ -318,6 +443,12 @@ mod tests {
         let after_summary = read_existing_tags(&mp3_path).expect("read clean tags");
         assert!(!after_summary.has_dirty_tags);
         assert_eq!(after_summary.tag_count, 1, "ID3v1 sale doit être supprimé");
+        if let Some(temp_art) = after_summary.embedded_artwork_path.as_deref() {
+            assert!(Path::new(temp_art).is_file());
+            let _ = fs::remove_file(temp_art);
+        } else {
+            panic!("embedded_artwork_path doit être extrait en lecture seule");
+        }
 
         let reread = Probe::open(&mp3_path)
             .unwrap()
@@ -374,6 +505,114 @@ mod tests {
         assert_eq!(existing.album_artist.as_deref(), Some("Shay"));
         assert_eq!(existing.album.as_deref(), Some("Pourvu qu'il pleuve"));
         assert!(!existing.has_dirty_tags);
+
+        let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn writes_genius_lyrics_into_id3v2_tag() {
+        let mp3_path = create_minimal_valid_mp3();
+        let meta = TrackMetadata {
+            title: "T mimi".to_string(),
+            artist: "Shay".to_string(),
+            album_artist: "Shay".to_string(),
+            album: "Pourvu qu'il pleuve".to_string(),
+            track_number: Some(5),
+            track_total: Some(15),
+            disc_number: Some(1),
+            disc_total: Some(1),
+            year: Some(2024),
+            genre: Some("Hip-Hop/Rap".to_string()),
+            artwork_url: None,
+            is_compilation: false,
+            source: Some(MetadataSource::AppleMusic),
+            lyrics: Some("[Couplet 1]\nT mimi comme tout".to_string()),
+            synced_lyrics: None,
+        };
+
+        write_clean_tags(&mp3_path, &meta, None).expect("write_clean_tags with lyrics should pass");
+
+        let reread = Probe::open(&mp3_path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let tag = reread.primary_tag().expect("primary ID3v2 tag expected");
+        assert_eq!(
+            tag.get_string(ItemKey::UnsyncLyrics),
+            Some("[Couplet 1]\nT mimi comme tout")
+        );
+
+        let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn writes_synchronized_sylt_and_uslt_lyrics_into_mp3() {
+        use lofty::config::ParseOptions;
+        use lofty::mpeg::MpegFile;
+
+        let mp3_path = create_minimal_valid_mp3();
+        let lrc = "[00:01.25] Première ligne\n[00:05.50] Deuxième ligne";
+        let meta = TrackMetadata {
+            title: "Gatitas".to_string(),
+            artist: "Bad Gyal".to_string(),
+            album_artist: "Bad Gyal".to_string(),
+            album: "Más Cara".to_string(),
+            track_number: Some(1),
+            track_total: Some(12),
+            disc_number: Some(1),
+            disc_total: Some(1),
+            year: Some(2026),
+            genre: Some("Latin".to_string()),
+            artwork_url: None,
+            is_compilation: false,
+            source: Some(MetadataSource::AppleMusic),
+            lyrics: Some("Première ligne\nDeuxième ligne".to_string()),
+            synced_lyrics: Some(lrc.to_string()),
+        };
+
+        let fake_jpeg = DownloadedArtwork {
+            bytes: vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46],
+            mime_type: "image/jpeg".to_string(),
+        };
+
+        write_clean_tags(&mp3_path, &meta, Some(&fake_jpeg))
+            .expect("write_clean_tags with SYLT and artwork should pass");
+
+        let reread = Probe::open(&mp3_path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let primary = reread.primary_tag().expect("primary ID3v2 tag expected");
+        assert_eq!(primary.pictures().len(), 1, "APIC artwork must be preserved alongside SYLT");
+        assert_eq!(primary.pictures()[0].data(), fake_jpeg.bytes.as_slice());
+        assert_eq!(
+            primary.get_string(ItemKey::UnsyncLyrics),
+            Some("Première ligne\nDeuxième ligne")
+        );
+
+        let mut file = fs::File::open(&mp3_path).expect("open tagged mp3");
+        let mpeg = MpegFile::read_from(&mut file, ParseOptions::new()).expect("parse mp3");
+        let id3v2 = mpeg.id3v2().expect("id3v2 tag expected");
+        let sylt_frame = id3v2
+            .get(&FrameId::Valid(Cow::Borrowed("SYLT")))
+            .expect("SYLT frame should exist");
+
+        let Frame::Binary(bin) = sylt_frame else {
+            panic!("SYLT frame should be parsed as Frame::Binary");
+        };
+        let parsed_sylt = SynchronizedTextFrame::parse(&bin.data, bin.flags())
+            .expect("SYLT binary frame should decode cleanly");
+        assert_eq!(
+            parsed_sylt.content,
+            vec![
+                (1250, "Première ligne".to_string()),
+                (5500, "Deuxième ligne".to_string()),
+            ]
+        );
 
         let _ = fs::remove_file(&mp3_path);
     }

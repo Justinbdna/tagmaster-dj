@@ -27,6 +27,9 @@ const PROTECTED_KEYWORDS = [
   "live",
   "acoustic",
   "sped up",
+  "slowed",
+  "reverb",
+  "nightcore",
   "chopped",
   "instrumental",
   "remix",
@@ -505,7 +508,7 @@ export function useTrackLibrary() {
   );
 
   const resolveTrackFromReview = useCallback(
-    (trackId: string, result: ManualExportResult) => {
+    (trackId: string, result: ManualExportResult, localArtworkPath?: string) => {
       setErrorMessage(null);
       setTracks((prev) =>
         prev.map((item) =>
@@ -515,7 +518,9 @@ export function useTrackLibrary() {
                 status: "completed",
                 metadata: result.metadata,
                 exportedPath: result.exportedPath,
-                localArtworkPath: undefined,
+                localArtworkPath: result.metadata.artworkUrl
+                  ? undefined
+                  : localArtworkPath || item.localArtworkPath,
                 reviewReason: undefined,
                 candidates: undefined,
               }

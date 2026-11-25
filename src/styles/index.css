@@ -6,33 +6,33 @@
       "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, Helvetica, Arial,
       sans-serif;
 
-    /* Dark Mode (Default — Neutral Carbon / Obsidian Liquid Glass, macOS Tahoe / iOS 26) */
-    --canvas-base: #0d0d0f;
-    --canvas-orb-1: rgba(255, 255, 255, 0.065);
-    --canvas-orb-2: rgba(196, 196, 204, 0.05);
-    --canvas-orb-3: rgba(138, 138, 146, 0.045);
-    --canvas-orb-4: rgba(224, 224, 230, 0.04);
+    /* Dark Mode (Default — Native macOS Liquid Glass / Obsidian Translucent) */
+    --canvas-base: rgba(10, 12, 16, 0.24);
+    --canvas-orb-1: rgba(255, 255, 255, 0.08);
+    --canvas-orb-2: rgba(196, 196, 204, 0.06);
+    --canvas-orb-3: rgba(138, 138, 146, 0.055);
+    --canvas-orb-4: rgba(224, 224, 230, 0.05);
 
-    /* Liquid Glass Navigation Layer (Elevated Carbon Chrome) */
-    --glass-bg: rgba(28, 28, 32, 0.64);
-    --glass-bg-hover: rgba(38, 38, 43, 0.74);
-    --glass-pill-bg: rgba(255, 255, 255, 0.075);
-    --glass-pill-hover: rgba(255, 255, 255, 0.13);
-    --glass-active-bg: rgba(255, 255, 255, 0.145);
-    --glass-border: rgba(255, 255, 255, 0.11);
-    --glass-border-strong: rgba(255, 255, 255, 0.2);
-    --glass-specular-top: rgba(255, 255, 255, 0.22);
-    --glass-specular-sheen: rgba(255, 255, 255, 0.075);
-    --glass-shadow: 0 24px 56px rgba(0, 0, 0, 0.56),
-      0 4px 16px rgba(0, 0, 0, 0.34);
+    /* Liquid Glass Navigation Layer (Sidebar / TopBar / Floating Dock) */
+    --glass-bg: rgba(18, 20, 26, 0.34);
+    --glass-bg-hover: rgba(28, 30, 38, 0.48);
+    --glass-pill-bg: rgba(255, 255, 255, 0.085);
+    --glass-pill-hover: rgba(255, 255, 255, 0.15);
+    --glass-active-bg: rgba(255, 255, 255, 0.16);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-border-strong: rgba(255, 255, 255, 0.24);
+    --glass-specular-top: rgba(255, 255, 255, 0.26);
+    --glass-specular-sheen: rgba(255, 255, 255, 0.09);
+    --glass-shadow: 0 24px 56px rgba(0, 0, 0, 0.45),
+      0 4px 16px rgba(0, 0, 0, 0.26);
 
-    /* Foundational Content Layer (Deep Obsidian Surface) */
-    --content-bg: rgba(20, 20, 23, 0.78);
-    --content-card-bg: rgba(255, 255, 255, 0.04);
-    --content-card-hover: rgba(255, 255, 255, 0.075);
-    --content-border: rgba(255, 255, 255, 0.085);
-    --content-divider: rgba(255, 255, 255, 0.07);
-    --content-shadow: 0 16px 38px rgba(0, 0, 0, 0.36);
+    /* Foundational Content Layer (Deep Translucent Surface) */
+    --content-bg: rgba(14, 15, 19, 0.62);
+    --content-card-bg: rgba(255, 255, 255, 0.045);
+    --content-card-hover: rgba(255, 255, 255, 0.08);
+    --content-border: rgba(255, 255, 255, 0.095);
+    --content-divider: rgba(255, 255, 255, 0.08);
+    --content-shadow: 0 16px 38px rgba(0, 0, 0, 0.3);
 
     /* Typography */
     --text-primary: rgba(255, 255, 255, 0.96);
@@ -64,38 +64,44 @@
     --badge-info-bg: rgba(56, 189, 248, 0.16);
     --badge-info-border: rgba(56, 189, 248, 0.34);
     --badge-info-text: #7dd3fc;
+    --badge-youtube-bg: rgba(244, 63, 94, 0.16);
+    --badge-youtube-border: rgba(251, 113, 133, 0.36);
+    --badge-youtube-text: #fda4af;
+    --badge-soundcloud-bg: rgba(249, 115, 22, 0.16);
+    --badge-soundcloud-border: rgba(251, 146, 60, 0.36);
+    --badge-soundcloud-text: #fdba74;
 
     color-scheme: dark;
     font-family: var(--font-sans);
   }
 
   html.light {
-    /* Light Mode — Crisp macOS Tahoe / iOS 26 Refractive Mist */
-    --canvas-base: #eaf0f8;
-    --canvas-orb-1: rgba(56, 189, 248, 0.26);
-    --canvas-orb-2: rgba(129, 140, 248, 0.22);
-    --canvas-orb-3: rgba(192, 132, 252, 0.16);
-    --canvas-orb-4: rgba(45, 212, 191, 0.16);
+    /* Light Mode — Crisp macOS Tahoe / iOS 26 Refractive Mist (résistant au fond noir plein écran) */
+    --canvas-base: rgba(246, 249, 253, 0.76);
+    --canvas-orb-1: rgba(56, 189, 248, 0.16);
+    --canvas-orb-2: rgba(129, 140, 248, 0.14);
+    --canvas-orb-3: rgba(192, 132, 252, 0.1);
+    --canvas-orb-4: rgba(45, 212, 191, 0.1);
 
     /* Liquid Glass Navigation Layer (Light) */
-    --glass-bg: rgba(255, 255, 255, 0.62);
-    --glass-bg-hover: rgba(255, 255, 255, 0.78);
-    --glass-pill-bg: rgba(255, 255, 255, 0.54);
-    --glass-pill-hover: rgba(255, 255, 255, 0.8);
-    --glass-active-bg: rgba(255, 255, 255, 0.92);
-    --glass-border: rgba(255, 255, 255, 0.78);
+    --glass-bg: rgba(255, 255, 255, 0.72);
+    --glass-bg-hover: rgba(255, 255, 255, 0.84);
+    --glass-pill-bg: rgba(255, 255, 255, 0.66);
+    --glass-pill-hover: rgba(255, 255, 255, 0.86);
+    --glass-active-bg: rgba(255, 255, 255, 0.94);
+    --glass-border: rgba(255, 255, 255, 0.85);
     --glass-border-strong: rgba(15, 23, 42, 0.14);
-    --glass-specular-top: rgba(255, 255, 255, 0.96);
+    --glass-specular-top: rgba(255, 255, 255, 0.98);
     --glass-specular-sheen: rgba(255, 255, 255, 0.55);
     --glass-shadow: 0 20px 46px rgba(15, 23, 42, 0.09),
       0 2px 10px rgba(15, 23, 42, 0.05);
 
     /* Foundational Content Layer (Light) */
-    --content-bg: rgba(255, 255, 255, 0.78);
-    --content-card-bg: rgba(15, 23, 42, 0.025);
-    --content-card-hover: rgba(15, 23, 42, 0.05);
-    --content-border: rgba(15, 23, 42, 0.09);
-    --content-divider: rgba(15, 23, 42, 0.07);
+    --content-bg: rgba(255, 255, 255, 0.82);
+    --content-card-bg: rgba(15, 23, 42, 0.03);
+    --content-card-hover: rgba(15, 23, 42, 0.06);
+    --content-border: rgba(15, 23, 42, 0.1);
+    --content-divider: rgba(15, 23, 42, 0.08);
     --content-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
 
     /* Typography */
@@ -127,22 +133,30 @@
     --badge-info-bg: rgba(14, 165, 233, 0.14);
     --badge-info-border: rgba(2, 132, 199, 0.3);
     --badge-info-text: #0369a1;
+    --badge-youtube-bg: rgba(244, 63, 94, 0.12);
+    --badge-youtube-border: rgba(225, 29, 72, 0.32);
+    --badge-youtube-text: #be123c;
+    --badge-soundcloud-bg: rgba(249, 115, 22, 0.14);
+    --badge-soundcloud-border: rgba(234, 88, 12, 0.34);
+    --badge-soundcloud-text: #c2410c;
 
     color-scheme: light;
   }
 
   /* Tinted Glass Accessibility Option (inspired by macOS Tahoe Tinted Liquid Glass) */
   html.dark[data-glass-tint="tinted"] {
-    --glass-bg: rgba(24, 24, 28, 0.86);
-    --glass-pill-bg: rgba(255, 255, 255, 0.1);
-    --glass-border: rgba(255, 255, 255, 0.13);
-    --content-bg: rgba(17, 17, 20, 0.92);
+    --canvas-base: rgba(10, 11, 15, 0.64);
+    --glass-bg: rgba(20, 21, 26, 0.78);
+    --glass-pill-bg: rgba(255, 255, 255, 0.11);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --content-bg: rgba(15, 16, 20, 0.88);
   }
 
   html.light[data-glass-tint="tinted"] {
-    --glass-bg: rgba(255, 255, 255, 0.86);
-    --glass-pill-bg: rgba(255, 255, 255, 0.8);
-    --content-bg: rgba(255, 255, 255, 0.94);
+    --canvas-base: rgba(242, 246, 252, 0.9);
+    --glass-bg: rgba(255, 255, 255, 0.9);
+    --glass-pill-bg: rgba(255, 255, 255, 0.86);
+    --content-bg: rgba(255, 255, 255, 0.95);
   }
 
   * {
@@ -154,10 +168,11 @@
   #root {
     height: 100%;
     margin: 0;
+    background-color: transparent;
   }
 
   body {
-    background-color: var(--canvas-base);
+    background-color: transparent;
     color: var(--text-primary);
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
@@ -305,6 +320,18 @@
   background-color: var(--badge-info-bg);
   border-color: var(--badge-info-border);
   color: var(--badge-info-text);
+}
+
+.badge-youtube {
+  background-color: var(--badge-youtube-bg);
+  border-color: var(--badge-youtube-border);
+  color: var(--badge-youtube-text);
+}
+
+.badge-soundcloud {
+  background-color: var(--badge-soundcloud-bg);
+  border-color: var(--badge-soundcloud-border);
+  color: var(--badge-soundcloud-text);
 }
 
 .text-primary {

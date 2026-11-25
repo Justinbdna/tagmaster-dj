@@ -210,6 +210,8 @@ mod tests {
             artwork_url: None,
             is_compilation: false,
             source: Some(MetadataSource::AppleMusic),
+            lyrics: None,
+            synced_lyrics: None,
         }
     }
 

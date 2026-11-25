@@ -11,12 +11,14 @@ interface ToastNotificationProps {
   toast: ToastPayload | null;
   onClose: () => void;
   durationMs?: number;
+  fullWidthCentered?: boolean;
 }
 
 export function ToastNotification({
   toast,
   onClose,
   durationMs = 3500,
+  fullWidthCentered = false,
 }: ToastNotificationProps) {
   useEffect(() => {
     if (!toast) return;
@@ -34,14 +36,16 @@ export function ToastNotification({
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed right-5 bottom-5 z-50"
+      className={`pointer-events-none fixed top-2.5 left-1/2 z-50 -translate-x-1/2 ${
+        fullWidthCentered ? "" : "md:left-[calc(50%+124px)]"
+      }`}
     >
-      <div className="liquid-glass pointer-events-auto flex max-w-sm items-center gap-2.5 rounded-full px-4 py-2.5">
+      <div className="liquid-glass pointer-events-auto flex max-w-xs items-center gap-2 rounded-full px-3.5 py-1.5 shadow-lg sm:max-w-sm">
         <Check
-          className="relative z-10 h-4 w-4 shrink-0 text-emerald-400"
+          className="relative z-10 h-3.5 w-3.5 shrink-0 text-emerald-400"
           strokeWidth={2.3}
         />
-        <span className="relative z-10 truncate text-[12.5px] font-medium text-primary">
+        <span className="relative z-10 truncate text-[12px] font-medium text-primary">
           {toast.message}
         </span>
         <button

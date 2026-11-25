@@ -21,14 +21,30 @@ import { useTheme } from "../hooks/useTheme";
 import { useTrackLibrary } from "../hooks/useTrackLibrary";
 import type {
   AppView,
+  ExportFormatMode,
   ExportMode,
+  HardwareProfile,
   ManualExportResult,
   TrackMetadata,
 } from "../types/track";
 
+const FORMAT_STORAGE_KEY = "tagmaster_dj_format_mode";
+const PROFILE_STORAGE_KEY = "tagmaster_dj_hardware_profile";
+
 export function WorkspacePage() {
   const [activeView, setActiveView] = useState<AppView>("library");
   const [exportMode, setExportMode] = useState<ExportMode>("dynamic");
+  const [formatMode, setFormatModeState] = useState<ExportFormatMode>(() => {
+    const saved = window.localStorage.getItem(FORMAT_STORAGE_KEY);
+    return saved === "force_mp3" ? "force_mp3" : "passthrough";
+  });
+  const [hardwareProfile, setHardwareProfileState] = useState<HardwareProfile>(
+    () => {
+      const saved = window.localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (saved === "ipod" || saved === "psp") return saved;
+      return "standard";
+    },
+  );
   const [selectedReviewTrackId, setSelectedReviewTrackId] = useState<
     string | null
   >(null);
@@ -37,9 +53,24 @@ export function WorkspacePage() {
   >(null);
   const [toast, setToast] = useState<ToastPayload | null>(null);
 
+  const setFormatMode = useCallback((mode: ExportFormatMode) => {
+    setFormatModeState(mode);
+    window.localStorage.setItem(FORMAT_STORAGE_KEY, mode);
+  }, []);
+
+  const setHardwareProfile = useCallback((profile: HardwareProfile) => {
+    setHardwareProfileState(profile);
+    window.localStorage.setItem(PROFILE_STORAGE_KEY, profile);
+  }, []);
+
   const { health } = useAppHealth();
   const { theme, setTheme, toggleTheme, glassTint, setGlassTint } = useTheme();
-  const library = useTrackLibrary(exportMode, setExportMode);
+  const library = useTrackLibrary(
+    exportMode,
+    setExportMode,
+    formatMode,
+    hardwareProfile,
+  );
 
   const isFocusMode = activeView === "review" || activeView === "duplicates";
 
@@ -315,6 +346,8 @@ export function WorkspacePage() {
                   protectedCount={library.protectedCount}
                   totalSizeLabel={library.totalSizeLabel}
                   exportMode={exportMode}
+                  formatMode={formatMode}
+                  hardwareProfile={hardwareProfile}
                   notice={library.notice}
                   isRunningBatch={library.isRunningBatch}
                   batchAction={library.batchAction}
@@ -325,6 +358,7 @@ export function WorkspacePage() {
                     void handleRunBatchExport({ forceAll: true })
                   }
                   onOpenExportFolder={() => void library.openExportFolder()}
+                  onOpenSettings={() => setActiveView("settings")}
                 />
               </>
             )}
@@ -337,6 +371,8 @@ export function WorkspacePage() {
             selectedTrackId={selectedReviewTrackId}
             onSelectTrack={setSelectedReviewTrackId}
             exportMode={exportMode}
+            formatMode={formatMode}
+            hardwareProfile={hardwareProfile}
             onTrackValidated={handleTrackValidatedFromReview}
             onTrackResolved={handleTrackResolvedFromReview}
             onBackToLibrary={() => {
@@ -371,6 +407,10 @@ export function WorkspacePage() {
             onSelectGlassTint={setGlassTint}
             exportMode={exportMode}
             onSelectExportMode={setExportMode}
+            formatMode={formatMode}
+            onSelectFormatMode={setFormatMode}
+            hardwareProfile={hardwareProfile}
+            onSelectHardwareProfile={setHardwareProfile}
           />
         )}
       </main>

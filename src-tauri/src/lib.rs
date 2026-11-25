@@ -2,6 +2,7 @@ pub mod api;
 pub mod cache;
 pub mod duplicates;
 pub mod exporter;
+pub mod ffmpeg;
 pub mod models;
 pub mod scanner;
 pub mod tagger;
@@ -10,9 +11,10 @@ use std::path::PathBuf;
 
 use models::{
     ApiKeysSettings, ArtworkCandidate, AudioTrackItem, BatchSummary, BatchTrackInput,
-    DuplicateGroup, ExistingTrackTags, ExportMode, HealthStatus, LookupStatus, ManualExportInput,
-    ManualExportResult, MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult,
-    SessionCache, SessionCacheSummary, TrackCandidate, TrackStatus,
+    DuplicateGroup, ExistingTrackTags, ExportFormatMode, ExportMode, FfmpegStatus,
+    HardwareProfile, HealthStatus, LookupStatus, ManualExportInput, ManualExportResult,
+    MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult, SessionCache,
+    SessionCacheSummary, TrackCandidate, TrackStatus,
 };
 use tagger::rules::{RawMetadataInput, normalize_track_metadata};
 use tauri::{Emitter, Manager};
@@ -118,7 +120,11 @@ async fn run_batch_pipeline(
     app: tauri::AppHandle,
     tracks: Vec<BatchTrackInput>,
     export_mode: ExportMode,
+    format_mode: Option<ExportFormatMode>,
+    hardware_profile: Option<HardwareProfile>,
 ) -> Result<BatchSummary, String> {
+    let format_mode = format_mode.unwrap_or_default();
+    let hardware_profile = hardware_profile.unwrap_or_default();
     let export_root = resolve_export_root(&app)?;
     std::fs::create_dir_all(&export_root).map_err(|err| {
         format!(
@@ -242,7 +248,10 @@ async fn run_batch_pipeline(
         };
 
         // 2. Paroles synchronisées temps réel (LRCLIB sans clé -> SYLT + .lrc) + fallback Genius (.env)
-        if metadata.lyrics.is_none() || metadata.synced_lyrics.is_none() {
+        //    Ignoré pour le profil PSP 3000 (XMB ID3v2.3 strict sans .lrc ni SYLT).
+        if hardware_profile != HardwareProfile::Psp
+            && (metadata.lyrics.is_none() || metadata.synced_lyrics.is_none())
+        {
             let file_name_hint = source_path.file_name().and_then(|n| n.to_str());
             let resolved_lyrics = api::genius::resolve_lyrics_for_track(
                 &metadata.artist,
@@ -278,17 +287,21 @@ async fn run_batch_pipeline(
             None
         };
 
-        // 3. Export non destructif + Table Rase + Écriture tags ID3/MP4/FLAC
+        // 4. Export non destructif + FFmpeg (si requis) + Table Rase + Écriture tags selon profil
         let source_for_export = source_path.clone();
         let export_root_clone = export_root.clone();
         let mode_clone = export_mode.clone();
+        let format_clone = format_mode.clone();
+        let profile_clone = hardware_profile.clone();
         let meta_clone = metadata.clone();
 
         let export_result = tauri::async_runtime::spawn_blocking(move || {
-            exporter::export_single_track(
+            exporter::export_single_track_with_profile(
                 &source_for_export,
                 &export_root_clone,
                 mode_clone,
+                format_clone,
+                profile_clone,
                 &meta_clone,
                 artwork.as_ref(),
             )
@@ -454,7 +467,9 @@ async fn export_manual_track(
     };
 
     let source_path = PathBuf::from(&input.source_path);
-    if metadata.lyrics.is_none() || metadata.synced_lyrics.is_none() {
+    if input.hardware_profile != HardwareProfile::Psp
+        && (metadata.lyrics.is_none() || metadata.synced_lyrics.is_none())
+    {
         let file_name_hint = source_path.file_name().and_then(|n| n.to_str());
         let resolved_lyrics = api::genius::resolve_lyrics_for_track(
             &metadata.artist,
@@ -473,11 +488,15 @@ async fn export_manual_track(
     }
 
     let meta_clone = metadata.clone();
+    let format_mode = input.format_mode;
+    let hardware_profile = input.hardware_profile;
     let exported_path = tauri::async_runtime::spawn_blocking(move || {
-        exporter::export_single_track(
+        exporter::export_single_track_with_profile(
             &source_path,
             &export_root,
             input.export_mode,
+            format_mode,
+            hardware_profile,
             &meta_clone,
             artwork.as_ref(),
         )
@@ -658,6 +677,11 @@ fn detect_duplicate_groups(tracks: Vec<AudioTrackItem>) -> Vec<DuplicateGroup> {
 }
 
 #[tauri::command]
+fn check_ffmpeg_status() -> FfmpegStatus {
+    ffmpeg::check_ffmpeg_status()
+}
+
+#[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
@@ -676,6 +700,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             health_check,
+            check_ffmpeg_status,
             scan_audio_paths,
             read_track_tags,
             lookup_track_metadata,

@@ -153,6 +153,8 @@ export interface PipelineProgressEvent {
 export interface ManualExportInput {
   sourcePath: string;
   exportMode: ExportMode;
+  formatMode?: ExportFormatMode;
+  hardwareProfile?: HardwareProfile;
   title: string;
   artist: string;
   albumArtist?: string;
@@ -243,4 +245,10 @@ export interface HealthStatus {
   appName: string;
   version: string;
   status: string;
+}
+
+export interface FfmpegStatus {
+  available: boolean;
+  version?: string;
+  binaryPath?: string;
 }

@@ -29,7 +29,9 @@ import {
 import type {
   ArtworkCandidate,
   AudioTrackItem,
+  ExportFormatMode,
   ExportMode,
+  HardwareProfile,
   ManualExportResult,
   QuickSearchSource,
   TrackCandidate,
@@ -43,6 +45,8 @@ interface ReviewQueueViewProps {
   selectedTrackId: string | null;
   onSelectTrack: (id: string) => void;
   exportMode: ExportMode;
+  formatMode: ExportFormatMode;
+  hardwareProfile: HardwareProfile;
   onTrackValidated: (
     trackId: string,
     metadata: TrackMetadata,
@@ -263,6 +267,8 @@ export function ReviewQueueView({
   selectedTrackId,
   onSelectTrack,
   exportMode,
+  formatMode,
+  hardwareProfile,
   onTrackValidated,
   onTrackResolved,
   onBackToLibrary,
@@ -547,6 +553,8 @@ export function ReviewQueueView({
       const result = await exportManualTrack({
         sourcePath: activeTrack.sourcePath,
         exportMode,
+        formatMode,
+        hardwareProfile,
         title: candidate.title,
         artist: candidate.artist,
         albumArtist: candidate.albumArtist,
@@ -811,6 +819,8 @@ export function ReviewQueueView({
       const result = await exportManualTrack({
         sourcePath: activeTrack.sourcePath,
         exportMode,
+        formatMode,
+        hardwareProfile,
         title,
         artist,
         albumArtist: form.albumArtist.trim() || artist,
@@ -976,11 +986,7 @@ export function ReviewQueueView({
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-primary">
               <Search className="h-4 w-4 text-sky-400" />
-              <h4>
-                {searchSource === "yt_dlp"
-                  ? "Recherche rapide à la volée (YouTube / SoundCloud via yt-dlp)"
-                  : "Recherche rapide à la volée (Apple Music US / UK / FR)"}
-              </h4>
+              <h4>Recherche rapide</h4>
             </div>
 
             {/* Source toggle selector */}

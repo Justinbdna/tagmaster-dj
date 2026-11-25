@@ -23,7 +23,7 @@ use lofty::tag::{Tag, TagType};
 
 use crate::api::apple_music::DownloadedArtwork;
 use crate::api::genius::{parse_lrc_lines, strip_lrc_timestamps};
-use crate::models::{ExistingTrackTags, TrackMetadata};
+use crate::models::{ExistingTrackTags, HardwareProfile, TrackMetadata};
 use crate::tagger::rules::looks_like_dirty_tag;
 
 fn non_blank(value: Option<String>) -> Option<String> {
@@ -193,8 +193,23 @@ pub fn write_clean_tags(
     metadata: &TrackMetadata,
     artwork: Option<&DownloadedArtwork>,
 ) -> Result<(), String> {
+    write_clean_tags_for_profile(target_path, metadata, artwork, &HardwareProfile::Standard)
+}
+
+/// Phase 2 avec prise en charge du profil matériel (`Standard` = ID3v2.4 + SYLT/USLT,
+/// `iPod` = ID3v2.3 + USLT, `PSP 3000` = ID3v2.3 strict sans SYLT/USLT).
+pub fn write_clean_tags_for_profile(
+    target_path: &Path,
+    metadata: &TrackMetadata,
+    artwork: Option<&DownloadedArtwork>,
+    profile: &HardwareProfile,
+) -> Result<(), String> {
     let primary_type = wipe_all_tags(target_path)?;
     let mut tag = Tag::new(primary_type);
+    let write_opts = match profile {
+        HardwareProfile::Standard => WriteOptions::default(),
+        HardwareProfile::Ipod | HardwareProfile::Psp => WriteOptions::new().use_id3v23(true),
+    };
 
     tag.set_title(metadata.title.clone());
     tag.set_artist(metadata.artist.clone());
@@ -247,72 +262,78 @@ pub fn write_clean_tags(
         tag.push_picture(picture);
     }
 
-    let plain_lyrics = metadata
-        .lyrics
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            metadata
-                .synced_lyrics
-                .as_deref()
-                .map(strip_lrc_timestamps)
-                .filter(|s| !s.is_empty())
-        });
+    let allow_lyrics = *profile != HardwareProfile::Psp;
+    let allow_sylt = *profile == HardwareProfile::Standard;
 
-    let synced_raw = metadata
-        .synced_lyrics
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    if allow_lyrics {
+        let plain_lyrics = metadata
+            .lyrics
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                metadata
+                    .synced_lyrics
+                    .as_deref()
+                    .map(strip_lrc_timestamps)
+                    .filter(|s| !s.is_empty())
+            });
 
-    if primary_type == TagType::Id3v2 {
-        if let Some(plain) = plain_lyrics {
-            tag.insert_text(ItemKey::UnsyncLyrics, plain);
-        }
+        let synced_raw = metadata
+            .synced_lyrics
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
 
-        if let Some(lrc) = synced_raw {
-            let sylt_entries = parse_lrc_lines(lrc);
-            if !sylt_entries.is_empty() {
-                let mut id3v2: Id3v2Tag = tag.into();
-                let sylt = SynchronizedTextFrame::new(
-                    TextEncoding::UTF8,
-                    *b"XXX",
-                    TimestampFormat::MS,
-                    SyncTextContentType::Lyrics,
-                    None,
-                    sylt_entries,
-                );
-                let bytes = sylt.as_bytes(WriteOptions::default()).map_err(|err| {
-                    format!(
-                        "Impossible d'encoder les paroles synchronisées SYLT pour {} : {err}",
-                        target_path.display()
-                    )
-                })?;
-                id3v2.insert(Frame::Binary(BinaryFrame::new(
-                    FrameId::Valid(Cow::Borrowed("SYLT")),
-                    bytes,
-                )));
-                return id3v2.save_to_path(target_path, WriteOptions::default()).map_err(|err| {
-                    format!(
-                        "Impossible d'écrire les nouveaux tags ID3v2 (+SYLT) sur {} : {err}",
-                        target_path.display()
-                    )
-                });
+        if primary_type == TagType::Id3v2 {
+            if let Some(plain) = plain_lyrics {
+                tag.insert_text(ItemKey::UnsyncLyrics, plain);
             }
+
+            if allow_sylt
+                && let Some(lrc) = synced_raw
+            {
+                let sylt_entries = parse_lrc_lines(lrc);
+                if !sylt_entries.is_empty() {
+                    let mut id3v2: Id3v2Tag = tag.into();
+                    let sylt = SynchronizedTextFrame::new(
+                        TextEncoding::UTF8,
+                        *b"XXX",
+                        TimestampFormat::MS,
+                        SyncTextContentType::Lyrics,
+                        None,
+                        sylt_entries,
+                    );
+                    let bytes = sylt.as_bytes(write_opts).map_err(|err| {
+                        format!(
+                            "Impossible d'encoder les paroles synchronisées SYLT pour {} : {err}",
+                            target_path.display()
+                        )
+                    })?;
+                    id3v2.insert(Frame::Binary(BinaryFrame::new(
+                        FrameId::Valid(Cow::Borrowed("SYLT")),
+                        bytes,
+                    )));
+                    return id3v2.save_to_path(target_path, write_opts).map_err(|err| {
+                        format!(
+                            "Impossible d'écrire les nouveaux tags ID3v2 (+SYLT) sur {} : {err}",
+                            target_path.display()
+                        )
+                    });
+                }
+            }
+        } else if let Some(best_lyrics) = synced_raw.map(str::to_string).or(plain_lyrics) {
+            tag.insert_text(ItemKey::Lyrics, best_lyrics);
         }
-    } else if let Some(best_lyrics) = synced_raw.map(str::to_string).or(plain_lyrics) {
-        tag.insert_text(ItemKey::Lyrics, best_lyrics);
     }
 
-    tag.save_to_path(target_path, WriteOptions::default())
-        .map_err(|err| {
-            format!(
-                "Impossible d'écrire les nouveaux tags sur {} : {err}",
-                target_path.display()
-            )
-        })
+    tag.save_to_path(target_path, write_opts).map_err(|err| {
+        format!(
+            "Impossible d'écrire les nouveaux tags sur {} : {err}",
+            target_path.display()
+        )
+    })
 }
 
 /// Charge une pochette locale (`.jpg`, `.jpeg`, `.png`, `.webp`) sélectionnée manuellement.

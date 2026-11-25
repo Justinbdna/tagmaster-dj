@@ -36,23 +36,23 @@ export function ToastNotification({
     <div
       role="status"
       aria-live="polite"
-      className={`pointer-events-none fixed top-2.5 left-1/2 z-50 -translate-x-1/2 ${
-        fullWidthCentered ? "" : "md:left-[calc(50%+124px)]"
+      className={`pointer-events-none fixed top-[49px] left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 ${
+        fullWidthCentered ? "" : "md:left-[calc(50%+127px)]"
       }`}
     >
-      <div className="liquid-glass pointer-events-auto flex max-w-xs items-center gap-2 rounded-full px-3.5 py-1.5 shadow-lg sm:max-w-sm">
+      <div className="modal-surface pointer-events-auto flex max-w-xs items-center gap-2 rounded-full px-3.5 py-1.5 sm:max-w-md">
         <Check
-          className="relative z-10 h-3.5 w-3.5 shrink-0 text-emerald-400"
-          strokeWidth={2.3}
+          className="text-semantic-success h-3.5 w-3.5 shrink-0"
+          strokeWidth={2.4}
         />
-        <span className="relative z-10 truncate text-[12px] font-medium text-primary">
+        <span className="truncate text-[12px] font-medium text-primary">
           {toast.message}
         </span>
         <button
           type="button"
           onClick={onClose}
           aria-label="Fermer la notification"
-          className="relative z-10 flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted transition-colors hover:bg-white/10 hover:text-primary"
+          className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-secondary transition-colors hover:bg-black/10 hover:text-primary dark:hover:bg-white/10"
         >
           <X className="h-3 w-3" />
         </button>

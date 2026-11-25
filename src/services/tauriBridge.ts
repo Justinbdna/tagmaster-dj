@@ -5,8 +5,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type {
   ApiKeysSettings,
   ArtworkCandidate,
+  AudioTrackItem,
   BatchSummary,
   BatchTrackInput,
+  DuplicateGroup,
   ExistingTrackTags,
   ExportMode,
   HealthStatus,
@@ -15,6 +17,8 @@ import type {
   MetadataLookupResult,
   PipelineProgressEvent,
   ScanResult,
+  SessionCache,
+  SessionCacheSummary,
   TrackCandidate,
 } from "../types/track";
 
@@ -99,6 +103,32 @@ export async function exportManualTrack(
   input: ManualExportInput,
 ): Promise<ManualExportResult> {
   return invoke<ManualExportResult>("export_manual_track", { input });
+}
+
+export async function getSessionCacheSummary(): Promise<SessionCacheSummary> {
+  return invoke<SessionCacheSummary>("get_session_cache_summary");
+}
+
+export async function loadSessionCache(): Promise<SessionCache | null> {
+  return invoke<SessionCache | null>("load_session_cache");
+}
+
+export async function saveSessionCache(session: SessionCache): Promise<void> {
+  return invoke<void>("save_session_cache", { session });
+}
+
+export async function clearSessionCache(): Promise<void> {
+  return invoke<void>("clear_session_cache");
+}
+
+export async function detectDuplicateGroups(
+  tracks: AudioTrackItem[],
+): Promise<DuplicateGroup[]> {
+  return invoke<DuplicateGroup[]>("detect_duplicate_groups", { tracks });
+}
+
+export async function exitApp(): Promise<void> {
+  return invoke<void>("exit_app");
 }
 
 export async function openArtworkFileDialog(): Promise<string | null> {

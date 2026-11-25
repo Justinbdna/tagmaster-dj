@@ -7,12 +7,34 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use lofty::prelude::AudioFile;
+use lofty::probe::Probe;
 use walkdir::WalkDir;
 
 use crate::models::{AudioTrackItem, ScanResult, TrackStatus};
 use crate::tagger::rules::contains_protected_keyword;
 
 pub const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &["mp3", "m4a", "aac", "flac", "wav"];
+
+fn read_audio_properties(path: &Path) -> (Option<u64>, Option<u32>, Option<u32>) {
+    let Ok(probe) = Probe::open(path) else {
+        return (None, None, None);
+    };
+    let Ok(guessed) = probe.guess_file_type() else {
+        return (None, None, None);
+    };
+    let Ok(tagged_file) = guessed.read() else {
+        return (None, None, None);
+    };
+    let props = tagged_file.properties();
+    let duration_secs = {
+        let secs = props.duration().as_secs();
+        if secs > 0 { Some(secs) } else { None }
+    };
+    let bitrate_kbps = props.audio_bitrate().filter(|&b| b > 0);
+    let sample_rate_hz = props.sample_rate().filter(|&s| s > 0);
+    (duration_secs, bitrate_kbps, sample_rate_hz)
+}
 
 fn is_hidden_or_resource_fork(path: &Path) -> bool {
     path.file_name()
@@ -45,6 +67,7 @@ fn build_track_item(path: &Path, extension: String) -> Option<AudioTrackItem> {
 
     let source_path = path.to_string_lossy().into_owned();
     let has_protected_keyword = contains_protected_keyword(&file_name);
+    let (duration_secs, bitrate_kbps, sample_rate_hz) = read_audio_properties(path);
 
     Some(AudioTrackItem {
         id: source_path.to_lowercase(),
@@ -57,7 +80,13 @@ fn build_track_item(path: &Path, extension: String) -> Option<AudioTrackItem> {
         status: TrackStatus::Pending,
         metadata: None,
         exported_path: None,
+        local_artwork_path: None,
         review_reason: None,
+        candidates: Vec::new(),
+        last_query_used: None,
+        duration_secs,
+        bitrate_kbps,
+        sample_rate_hz,
     })
 }
 

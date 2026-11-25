@@ -1,5 +1,6 @@
 pub mod api;
 pub mod cache;
+pub mod duplicates;
 pub mod exporter;
 pub mod models;
 pub mod scanner;
@@ -8,16 +9,44 @@ pub mod tagger;
 use std::path::PathBuf;
 
 use models::{
-    ApiKeysSettings, ArtworkCandidate, BatchSummary, BatchTrackInput, ExistingTrackTags,
-    ExportMode, HealthStatus, LookupStatus, ManualExportInput, ManualExportResult,
-    MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult, TrackCandidate,
-    TrackStatus,
+    ApiKeysSettings, ArtworkCandidate, AudioTrackItem, BatchSummary, BatchTrackInput,
+    DuplicateGroup, ExistingTrackTags, ExportMode, HealthStatus, LookupStatus, ManualExportInput,
+    ManualExportResult, MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult,
+    SessionCache, SessionCacheSummary, TrackCandidate, TrackStatus,
 };
 use tagger::rules::{RawMetadataInput, normalize_track_metadata};
 use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 pub const PIPELINE_PROGRESS_EVENT: &str = "pipeline://progress";
+const NETWORK_FAILURE_THRESHOLD: usize = 2;
+
+/// Détecte si une erreur API correspond à une coupure réseau, un timeout ou un rate-limit HTTP.
+pub fn is_network_or_rate_limit_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    const PATTERNS: &[&str] = &[
+        "erreur réseau",
+        "http 429",
+        "429 too many",
+        "too many requests",
+        "http 500",
+        "http 502",
+        "http 503",
+        "http 504",
+        "rate limit",
+        "rate-limit",
+        "timed out",
+        "timeout",
+        "dns",
+        "failed to lookup",
+        "connection",
+        "network",
+        "unreachable",
+        "reset by peer",
+        "error sending request",
+    ];
+    PATTERNS.iter().any(|p| lower.contains(p))
+}
 
 fn resolve_export_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let documents_dir = app
@@ -102,6 +131,10 @@ async fn run_batch_pipeline(
     let mut completed_count: usize = 0;
     let mut needs_review_count: usize = 0;
     let mut failed_count: usize = 0;
+    let mut consecutive_network_errors: usize = 0;
+    let mut interrupted_by_network = false;
+    let mut network_error_message: Option<String> = None;
+    let mut remaining_count: usize = 0;
 
     for (idx, item) in tracks.into_iter().enumerate() {
         let current_index = idx + 1;
@@ -146,9 +179,11 @@ async fn run_batch_pipeline(
                 Ok(lookup)
                     if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
                 {
+                    consecutive_network_errors = 0;
                     lookup.metadata.unwrap()
                 }
                 Ok(lookup) => {
+                    consecutive_network_errors = 0;
                     needs_review_count += 1;
                     let _ = app.emit(
                         PIPELINE_PROGRESS_EVENT,
@@ -170,6 +205,7 @@ async fn run_batch_pipeline(
                 }
                 Err(err) => {
                     failed_count += 1;
+                    let is_net_err = is_network_or_rate_limit_error(&err);
                     let _ = app.emit(
                         PIPELINE_PROGRESS_EVENT,
                         &PipelineProgressEvent {
@@ -181,11 +217,25 @@ async fn run_batch_pipeline(
                             track_status: TrackStatus::Failed,
                             metadata: None,
                             exported_path: None,
-                            review_reason: Some(err),
+                            review_reason: Some(err.clone()),
                             query_used: None,
                             candidates: Vec::new(),
                         },
                     );
+                    if is_net_err {
+                        consecutive_network_errors += 1;
+                        if consecutive_network_errors >= NETWORK_FAILURE_THRESHOLD
+                            || current_index == total
+                        {
+                            interrupted_by_network = true;
+                            network_error_message = Some(err);
+                            remaining_count =
+                                (total.saturating_sub(current_index)) + consecutive_network_errors;
+                            break;
+                        }
+                    } else {
+                        consecutive_network_errors = 0;
+                    }
                     continue;
                 }
             }
@@ -295,6 +345,9 @@ async fn run_batch_pipeline(
         needs_review_count,
         failed_count,
         export_directory: export_root.to_string_lossy().into_owned(),
+        interrupted_by_network,
+        network_error_message,
+        remaining_count,
     })
 }
 
@@ -448,6 +501,10 @@ async fn run_batch_lookup(
     let mut completed_count: usize = 0;
     let mut needs_review_count: usize = 0;
     let mut failed_count: usize = 0;
+    let mut consecutive_network_errors: usize = 0;
+    let mut interrupted_by_network = false;
+    let mut network_error_message: Option<String> = None;
+    let mut remaining_count: usize = 0;
 
     for (idx, item) in tracks.into_iter().enumerate() {
         let current_index = idx + 1;
@@ -487,6 +544,7 @@ async fn run_batch_lookup(
             Ok(lookup)
                 if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
             {
+                consecutive_network_errors = 0;
                 completed_count += 1;
                 let _ = app.emit(
                     PIPELINE_PROGRESS_EVENT,
@@ -506,6 +564,7 @@ async fn run_batch_lookup(
                 );
             }
             Ok(lookup) => {
+                consecutive_network_errors = 0;
                 needs_review_count += 1;
                 let _ = app.emit(
                     PIPELINE_PROGRESS_EVENT,
@@ -526,6 +585,7 @@ async fn run_batch_lookup(
             }
             Err(err) => {
                 failed_count += 1;
+                let is_net_err = is_network_or_rate_limit_error(&err);
                 let _ = app.emit(
                     PIPELINE_PROGRESS_EVENT,
                     &PipelineProgressEvent {
@@ -537,11 +597,25 @@ async fn run_batch_lookup(
                         track_status: TrackStatus::Failed,
                         metadata: None,
                         exported_path: None,
-                        review_reason: Some(err),
+                        review_reason: Some(err.clone()),
                         query_used: None,
                         candidates: Vec::new(),
                     },
                 );
+                if is_net_err {
+                    consecutive_network_errors += 1;
+                    if consecutive_network_errors >= NETWORK_FAILURE_THRESHOLD
+                        || current_index == total
+                    {
+                        interrupted_by_network = true;
+                        network_error_message = Some(err);
+                        remaining_count =
+                            (total.saturating_sub(current_index)) + consecutive_network_errors;
+                        break;
+                    }
+                } else {
+                    consecutive_network_errors = 0;
+                }
             }
         }
     }
@@ -552,7 +626,40 @@ async fn run_batch_lookup(
         needs_review_count,
         failed_count,
         export_directory: String::new(),
+        interrupted_by_network,
+        network_error_message,
+        remaining_count,
     })
+}
+
+#[tauri::command]
+fn get_session_cache_summary(app: tauri::AppHandle) -> Result<SessionCacheSummary, String> {
+    cache::get_session_cache_summary(&app)
+}
+
+#[tauri::command]
+fn load_session_cache(app: tauri::AppHandle) -> Result<Option<SessionCache>, String> {
+    cache::load_session_cache(&app)
+}
+
+#[tauri::command]
+fn save_session_cache(app: tauri::AppHandle, session: SessionCache) -> Result<(), String> {
+    cache::save_session_cache(&app, &session)
+}
+
+#[tauri::command]
+fn clear_session_cache(app: tauri::AppHandle) -> Result<(), String> {
+    cache::clear_session_cache(&app)
+}
+
+#[tauri::command]
+fn detect_duplicate_groups(tracks: Vec<AudioTrackItem>) -> Vec<DuplicateGroup> {
+    duplicates::detect_duplicate_groups(&tracks)
+}
+
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -580,8 +687,36 @@ pub fn run() {
             search_artwork_candidates,
             get_api_keys_settings,
             save_genius_api_key,
-            export_manual_track
+            export_manual_track,
+            get_session_cache_summary,
+            load_session_cache,
+            save_session_cache,
+            clear_session_cache,
+            detect_duplicate_groups,
+            exit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_network_or_rate_limit_error;
+
+    #[test]
+    fn classifies_network_and_rate_limit_errors_accurately() {
+        assert!(is_network_or_rate_limit_error(
+            "Erreur réseau Apple Music (US) : error sending request"
+        ));
+        assert!(is_network_or_rate_limit_error(
+            "API Apple Music (US) a répondu avec le statut HTTP 429 Too Many Requests"
+        ));
+        assert!(is_network_or_rate_limit_error(
+            "API Apple Music (GB) a répondu avec le statut HTTP 503"
+        ));
+        assert!(is_network_or_rate_limit_error("request timed out"));
+        assert!(!is_network_or_rate_limit_error(
+            "Format audio non reconnu pour demo.mp3"
+        ));
+    }
 }

@@ -64,7 +64,7 @@ pub struct TrackMetadata {
     pub synced_lyrics: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioTrackItem {
     pub id: String,
@@ -77,7 +77,19 @@ pub struct AudioTrackItem {
     pub status: TrackStatus,
     pub metadata: Option<TrackMetadata>,
     pub exported_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_artwork_path: Option<String>,
     pub review_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<TrackCandidate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_query_used: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitrate_kbps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_rate_hz: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +222,45 @@ pub struct BatchSummary {
     pub needs_review_count: usize,
     pub failed_count: usize,
     pub export_directory: String,
+    #[serde(default)]
+    pub interrupted_by_network: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_error_message: Option<String>,
+    #[serde(default)]
+    pub remaining_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCache {
+    pub version: u32,
+    pub updated_at_ms: u64,
+    pub export_mode: ExportMode,
+    pub tracks: Vec<AudioTrackItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCacheSummary {
+    pub has_session: bool,
+    pub is_unfinished: bool,
+    pub updated_at_ms: u64,
+    pub export_mode: ExportMode,
+    pub total_tracks: usize,
+    pub exported_count: usize,
+    pub identified_count: usize,
+    pub needs_review_count: usize,
+    pub remaining_count: usize,
+    pub cache_file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateGroup {
+    pub group_key: String,
+    pub display_label: String,
+    pub match_reason: String,
+    pub track_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

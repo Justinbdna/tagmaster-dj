@@ -350,7 +350,7 @@ export function SettingsView({
           <p className="text-[11px] leading-relaxed text-muted">
             Stockage local uniquement :{" "}
             <code className="break-all text-secondary">{envFilePath}</code>{" "}
-            (exclu de Git · <code>DISCOGS_TOKEN</code> à venir au Bloc 3).
+            (exclu de Git).
           </p>
 
           <div className="pt-0.5">

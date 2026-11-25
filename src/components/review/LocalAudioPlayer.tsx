@@ -5,6 +5,9 @@ import { isTauriEnvironment, toLocalAssetUrl } from "../../services/tauriBridge"
 interface LocalAudioPlayerProps {
   sourcePath: string;
   fileName: string;
+  externalPauseSignal?: number;
+  onPlayStart?: () => void;
+  onDurationDetected?: (durationSecs: number) => void;
 }
 
 function formatSeconds(seconds: number): string {
@@ -18,6 +21,9 @@ function formatSeconds(seconds: number): string {
 export function LocalAudioPlayer({
   sourcePath,
   fileName,
+  externalPauseSignal,
+  onPlayStart,
+  onDurationDetected,
 }: LocalAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -47,6 +53,15 @@ export function LocalAudioPlayer({
   }, [sourcePath]);
 
   useEffect(() => {
+    if (externalPauseSignal === undefined || externalPauseSignal === 0) return;
+    const audio = audioRef.current;
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
+    setIsPlaying(false);
+  }, [externalPauseSignal]);
+
+  useEffect(() => {
     const audio = audioRef.current;
     return () => {
       if (audio) {
@@ -66,6 +81,8 @@ export function LocalAudioPlayer({
       setIsPlaying(false);
       return;
     }
+
+    onPlayStart?.();
 
     try {
       await audio.play();
@@ -113,9 +130,13 @@ export function LocalAudioPlayer({
           ref={audioRef}
           src={assetUrl}
           preload="metadata"
-          onLoadedMetadata={(e) =>
-            setDuration(e.currentTarget.duration || 0)
-          }
+          onLoadedMetadata={(e) => {
+            const dur = e.currentTarget.duration || 0;
+            setDuration(dur);
+            if (dur > 0 && Number.isFinite(dur)) {
+              onDurationDetected?.(Math.round(dur));
+            }
+          }}
           onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
           onEnded={() => {
             setIsPlaying(false);
@@ -201,7 +222,9 @@ export function LocalAudioPlayer({
       </div>
 
       {loadError && (
-        <p className="mt-1.5 text-[11px] text-amber-400">{loadError}</p>
+        <p className="text-semantic-warning mt-1.5 text-[11px] font-medium">
+          {loadError}
+        </p>
       )}
     </div>
   );

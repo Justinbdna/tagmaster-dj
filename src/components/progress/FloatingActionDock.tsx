@@ -6,7 +6,9 @@ import {
   Upload,
 } from "lucide-react";
 import type {
+  ExportFormatMode,
   ExportMode,
+  HardwareProfile,
   PipelineProgressEvent,
   QueueStats,
 } from "../../types/track";
@@ -16,6 +18,8 @@ interface FloatingActionDockProps {
   protectedCount: number;
   totalSizeLabel: string;
   exportMode: ExportMode;
+  formatMode: ExportFormatMode;
+  hardwareProfile: HardwareProfile;
   notice: string | null;
   isRunningBatch: boolean;
   batchAction: "lookup" | "export" | null;
@@ -24,6 +28,18 @@ interface FloatingActionDockProps {
   onRunBatch: () => void;
   onForceRunBatch: () => void;
   onOpenExportFolder: () => void;
+  onOpenSettings: () => void;
+}
+
+function getProfilePillLabel(
+  profile: HardwareProfile,
+  formatMode: ExportFormatMode,
+): string {
+  if (profile === "psp") return "PSP 3000 · MP3 320k";
+  if (profile === "ipod") {
+    return formatMode === "force_mp3" ? "iPod · MP3 320k" : "iPod · 600px";
+  }
+  return formatMode === "force_mp3" ? "Standard · MP3 320k" : "Standard";
 }
 
 export function FloatingActionDock({
@@ -31,6 +47,8 @@ export function FloatingActionDock({
   protectedCount,
   totalSizeLabel,
   exportMode,
+  formatMode,
+  hardwareProfile,
   notice,
   isRunningBatch,
   batchAction,
@@ -39,6 +57,7 @@ export function FloatingActionDock({
   onRunBatch,
   onForceRunBatch,
   onOpenExportFolder,
+  onOpenSettings,
 }: FloatingActionDockProps) {
   const resolvedCount =
     queueStats.identifiedCount +
@@ -109,6 +128,15 @@ export function FloatingActionDock({
           <span className="text-secondary">
             Export {exportMode === "dynamic" ? "Dynamique" : "Plat"}
           </span>
+          <span className="text-muted">·</span>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="Changer le profil matériel dans Paramètres"
+            className="cursor-pointer rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors hover:bg-[var(--content-card-hover)]"
+          >
+            {getProfilePillLabel(hardwareProfile, formatMode)}
+          </button>
           {protectedCount > 0 && (
             <>
               <span className="text-muted">·</span>

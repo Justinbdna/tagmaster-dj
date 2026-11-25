@@ -7,16 +7,18 @@ pub enum ExportMode {
     Dynamic,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportFormatMode {
+    #[default]
     Passthrough,
     ForceMp3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum HardwareProfile {
+    #[default]
     Standard,
     Ipod,
     Psp,
@@ -191,6 +193,10 @@ pub struct PipelineProgressEvent {
 pub struct ManualExportInput {
     pub source_path: String,
     pub export_mode: ExportMode,
+    #[serde(default)]
+    pub format_mode: ExportFormatMode,
+    #[serde(default)]
+    pub hardware_profile: HardwareProfile,
     pub title: String,
     pub artist: String,
     pub album_artist: Option<String>,
@@ -289,4 +295,14 @@ pub struct HealthStatus {
     pub app_name: String,
     pub version: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FfmpegStatus {
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
 }

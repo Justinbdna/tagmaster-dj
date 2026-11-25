@@ -22,7 +22,9 @@ import type {
   BatchSummary,
   BatchTrackInput,
   DuplicateGroup,
+  ExportFormatMode,
   ExportMode,
+  HardwareProfile,
   ManualExportResult,
   NetworkInterruptionState,
   PipelineProgressEvent,
@@ -189,6 +191,8 @@ function summarizeBrowserSession(session: SessionCache): SessionCacheSummary {
 export function useTrackLibrary(
   exportMode: ExportMode,
   onRestoreExportMode: (mode: ExportMode) => void,
+  formatMode: ExportFormatMode = "passthrough",
+  hardwareProfile: HardwareProfile = "standard",
 ) {
   const [tracks, setTracks] = useState<AudioTrackItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -211,6 +215,10 @@ export function useTrackLibrary(
   tracksRef.current = tracks;
   const exportModeRef = useRef<ExportMode>(exportMode);
   exportModeRef.current = exportMode;
+  const formatModeRef = useRef<ExportFormatMode>(formatMode);
+  formatModeRef.current = formatMode;
+  const hardwareProfileRef = useRef<HardwareProfile>(hardwareProfile);
+  hardwareProfileRef.current = hardwareProfile;
 
   // Sprint 2 Bloc 3 — Network resilience modal (#13)
   const [networkInterruption, setNetworkInterruption] =
@@ -861,7 +869,12 @@ export function useTrackLibrary(
       setBatchProgress(null);
 
       try {
-        const summary = await runBatchPipeline(inputs, mode);
+        const summary = await runBatchPipeline(
+          inputs,
+          mode,
+          formatModeRef.current,
+          hardwareProfileRef.current,
+        );
         await persistSessionNow(tracksRef.current, mode);
 
         if (summary.interruptedByNetwork) {

@@ -5,7 +5,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::models::{ExportMode, TrackMetadata};
+use crate::models::{ExportMode, HardwareProfile, TrackMetadata};
+use crate::tagger::sanitizer::{SanitizeLevel, sanitize_path_segment_for_level};
 
 pub const WINDOWS_MAX_PATH_SAFE: usize = 248;
 const MAX_FOLDER_SEGMENT_CHARS: usize = 64;
@@ -96,10 +97,33 @@ pub fn build_export_path(
     metadata: &TrackMetadata,
     source_extension: &str,
 ) -> PathBuf {
+    build_export_path_for_profile(
+        export_root,
+        mode,
+        metadata,
+        source_extension,
+        &HardwareProfile::Standard,
+    )
+}
+
+/// Variante sensible au profil matériel (`Standard` UTF-8, `iPod` FAT32, `PSP 3000` ASCII strict).
+pub fn build_export_path_for_profile(
+    export_root: &Path,
+    mode: ExportMode,
+    metadata: &TrackMetadata,
+    source_extension: &str,
+    profile: &HardwareProfile,
+) -> PathBuf {
+    let level = SanitizeLevel::for_profile(profile);
+    let sanitize_seg = |raw: &str| {
+        let base = sanitize_path_segment_for_level(raw, level);
+        sanitize_filename_segment(&base)
+    };
+
     let ext = normalized_extension(source_extension);
     let dot_ext = format!(".{ext}");
-    let artist_seg = sanitize_filename_segment(&metadata.artist);
-    let title_seg = sanitize_filename_segment(&metadata.title);
+    let artist_seg = sanitize_seg(&metadata.artist);
+    let title_seg = sanitize_seg(&metadata.title);
     let stem = format!("{artist_seg} - {title_seg}");
 
     let parent_dir = match mode {
@@ -110,8 +134,10 @@ pub fn build_export_path(
             } else {
                 &metadata.album_artist
             };
-            let folder_artist = truncate_folder_segment(primary_artist, MAX_FOLDER_SEGMENT_CHARS);
-            let folder_album = truncate_folder_segment(&metadata.album, MAX_FOLDER_SEGMENT_CHARS);
+            let folder_artist =
+                truncate_folder_segment(&sanitize_seg(primary_artist), MAX_FOLDER_SEGMENT_CHARS);
+            let folder_album =
+                truncate_folder_segment(&sanitize_seg(&metadata.album), MAX_FOLDER_SEGMENT_CHARS);
             export_root.join(folder_artist).join(folder_album)
         }
     };

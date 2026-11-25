@@ -2,25 +2,37 @@ import { useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
+  Cpu,
+  Disc,
   Eye,
   EyeOff,
   FolderTree,
+  Gamepad2,
   HelpCircle,
   KeyRound,
   Layers,
   Loader2,
   Moon,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Sun,
   Trash2,
 } from "lucide-react";
 import {
+  checkFfmpegStatus,
   getApiKeysSettings,
   isTauriEnvironment,
   saveGeniusApiKey,
 } from "../../services/tauriBridge";
-import type { ExportMode, GlassTint, ThemeMode } from "../../types/track";
+import type {
+  ExportFormatMode,
+  ExportMode,
+  FfmpegStatus,
+  GlassTint,
+  HardwareProfile,
+  ThemeMode,
+} from "../../types/track";
 
 interface SettingsViewProps {
   theme: ThemeMode;
@@ -29,7 +41,37 @@ interface SettingsViewProps {
   onSelectGlassTint: (tint: GlassTint) => void;
   exportMode: ExportMode;
   onSelectExportMode: (mode: ExportMode) => void;
+  formatMode: ExportFormatMode;
+  onSelectFormatMode: (mode: ExportFormatMode) => void;
+  hardwareProfile: HardwareProfile;
+  onSelectHardwareProfile: (profile: HardwareProfile) => void;
 }
+
+const HARDWARE_PROFILES: {
+  id: HardwareProfile;
+  label: string;
+  spec: string;
+  icon: typeof Smartphone;
+}[] = [
+  {
+    id: "standard",
+    label: "Standard",
+    spec: "1000 px · SYLT/LRC · UTF-8",
+    icon: Smartphone,
+  },
+  {
+    id: "ipod",
+    label: "iPod",
+    spec: "600 px JPEG · FAT32 · ID3v2.3",
+    icon: Disc,
+  },
+  {
+    id: "psp",
+    label: "PSP 3000",
+    spec: "MP3 320k · 400 px · ASCII strict",
+    icon: Gamepad2,
+  },
+];
 
 export function SettingsView({
   theme,
@@ -38,6 +80,10 @@ export function SettingsView({
   onSelectGlassTint,
   exportMode,
   onSelectExportMode,
+  formatMode,
+  onSelectFormatMode,
+  hardwareProfile,
+  onSelectHardwareProfile,
 }: SettingsViewProps) {
   const [geniusKey, setGeniusKey] = useState("");
   const [hasGeniusKey, setHasGeniusKey] = useState(false);
@@ -46,6 +92,7 @@ export function SettingsView({
   const [showGeniusGuide, setShowGeniusGuide] = useState(false);
   const [isLoadingKeys, setIsLoadingKeys] = useState(false);
   const [isSavingKeys, setIsSavingKeys] = useState(false);
+  const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{
     kind: "success" | "error";
     text: string;
@@ -55,6 +102,14 @@ export function SettingsView({
     if (!isTauriEnvironment()) return;
     let active = true;
     setIsLoadingKeys(true);
+
+    checkFfmpegStatus()
+      .then((status) => {
+        if (active) setFfmpegStatus(status);
+      })
+      .catch(() => {
+        if (active) setFfmpegStatus({ available: false });
+      });
 
     getApiKeysSettings()
       .then((settings) => {
@@ -245,6 +300,86 @@ export function SettingsView({
               Artiste - Titre.mp3
             </p>
           </button>
+        </div>
+      </div>
+
+      {/* Hardware Profile & FFmpeg Audio Mode Section */}
+      <div className="rounded-[18px] border border-[var(--content-border)] bg-[var(--content-card-bg)] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-[14px] font-semibold text-primary">
+            <Cpu className="h-4 w-4 text-sky-400" />
+            <h3>Profil matériel &amp; Audio</h3>
+          </div>
+          {ffmpegStatus && (
+            <span
+              title={ffmpegStatus.version ?? "FFmpeg absent du PATH"}
+              className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${
+                ffmpegStatus.available ? "badge-success" : "badge-warning"
+              }`}
+            >
+              {ffmpegStatus.available ? "FFmpeg prêt" : "FFmpeg absent"}
+            </span>
+          )}
+        </div>
+
+        <div className="mt-3 grid gap-2.5 md:grid-cols-3">
+          {HARDWARE_PROFILES.map((item) => {
+            const Icon = item.icon;
+            const isSelected = hardwareProfile === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelectHardwareProfile(item.id)}
+                className={`flex cursor-pointer flex-col items-start rounded-[14px] px-3.5 py-3 text-left transition-all ${
+                  isSelected
+                    ? "liquid-glass-active"
+                    : "border border-[var(--content-border)] hover:bg-[var(--content-card-hover)]"
+                }`}
+              >
+                <div className="flex items-center gap-2 text-[12.5px] font-semibold text-primary">
+                  <Icon
+                    className={`h-3.5 w-3.5 ${
+                      isSelected ? "text-semantic-info" : "text-muted"
+                    }`}
+                  />
+                  <span>{item.label}</span>
+                </div>
+                <p className="mt-1 text-[11px] text-secondary">{item.spec}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--content-divider)] pt-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+            Format audio
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={hardwareProfile === "psp"}
+              onClick={() => onSelectFormatMode("passthrough")}
+              className={`cursor-pointer rounded-full px-3 py-1.5 text-[11.5px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                hardwareProfile !== "psp" && formatMode === "passthrough"
+                  ? "liquid-glass-active text-primary"
+                  : "border border-[var(--content-border)] text-secondary hover:text-primary"
+              }`}
+            >
+              Passthrough
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectFormatMode("force_mp3")}
+              className={`cursor-pointer rounded-full px-3 py-1.5 text-[11.5px] font-medium transition-all ${
+                hardwareProfile === "psp" || formatMode === "force_mp3"
+                  ? "liquid-glass-active text-primary"
+                  : "border border-[var(--content-border)] text-secondary hover:text-primary"
+              }`}
+            >
+              Force MP3 320 kbps
+            </button>
+          </div>
         </div>
       </div>
 

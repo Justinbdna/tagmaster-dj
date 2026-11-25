@@ -10,7 +10,10 @@ import type {
   BatchTrackInput,
   DuplicateGroup,
   ExistingTrackTags,
+  ExportFormatMode,
   ExportMode,
+  FfmpegStatus,
+  HardwareProfile,
   HealthStatus,
   ManualExportInput,
   ManualExportResult,
@@ -38,6 +41,10 @@ export async function checkBackendHealth(): Promise<HealthStatus> {
   return invoke<HealthStatus>("health_check");
 }
 
+export async function checkFfmpegStatus(): Promise<FfmpegStatus> {
+  return invoke<FfmpegStatus>("check_ffmpeg_status");
+}
+
 export async function scanAudioPaths(paths: string[]): Promise<ScanResult> {
   return invoke<ScanResult>("scan_audio_paths", { paths });
 }
@@ -63,8 +70,15 @@ export async function runBatchLookup(
 export async function runBatchPipeline(
   tracks: BatchTrackInput[],
   exportMode: ExportMode,
+  formatMode?: ExportFormatMode,
+  hardwareProfile?: HardwareProfile,
 ): Promise<BatchSummary> {
-  return invoke<BatchSummary>("run_batch_pipeline", { tracks, exportMode });
+  return invoke<BatchSummary>("run_batch_pipeline", {
+    tracks,
+    exportMode,
+    formatMode,
+    hardwareProfile,
+  });
 }
 
 export async function openExportDirectory(): Promise<string> {

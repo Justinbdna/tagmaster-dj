@@ -171,8 +171,8 @@ export function FloatingActionDock({
         </div>
 
         {/* Real-time progress bar */}
-        <div className="mt-2 flex items-center gap-3">
-          <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-white/10">
+        <div className="mt-2 flex min-w-0 items-center gap-3">
+          <div className="h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-white/10 sm:w-36">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
                 isAllExported
@@ -183,7 +183,7 @@ export function FloatingActionDock({
             />
           </div>
           <span
-            className="max-w-[380px] shrink-0 truncate text-[11px] tabular-nums text-muted"
+            className="min-w-0 flex-1 truncate text-[11px] tabular-nums text-muted"
             title={progressLabel}
           >
             {progressLabel}

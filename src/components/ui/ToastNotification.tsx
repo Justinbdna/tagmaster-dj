@@ -5,6 +5,8 @@ import { Check, X } from "lucide-react";
 export interface ToastPayload {
   id: number;
   message: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 interface ToastNotificationProps {
@@ -48,6 +50,18 @@ export function ToastNotification({
         <span className="truncate text-[12px] font-medium text-primary">
           {toast.message}
         </span>
+        {toast.actionLabel && toast.onAction && (
+          <button
+            type="button"
+            onClick={() => {
+              toast.onAction?.();
+              onClose();
+            }}
+            className="text-semantic-info shrink-0 cursor-pointer rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[11px] font-semibold transition-colors hover:bg-sky-500/25"
+          >
+            {toast.actionLabel}
+          </button>
+        )}
         <button
           type="button"
           onClick={onClose}

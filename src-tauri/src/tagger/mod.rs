@@ -8,10 +8,11 @@ pub mod rules;
 pub mod sanitizer;
 
 use std::borrow::Cow;
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use lofty::TextEncoding;
-use lofty::config::WriteOptions;
+use lofty::config::{ParseOptions, WriteOptions};
 use lofty::id3::v2::{
     BinaryFrame, Frame, FrameId, Id3v2Tag, SyncTextContentType, SynchronizedTextFrame,
     TimestampFormat,
@@ -46,6 +47,132 @@ fn fnv1a_64(data: &[u8]) -> u64 {
     hash
 }
 
+pub const EMBEDDED_ARTWORK_CACHE_DIR_NAME: &str = "tagmaster-dj-thumbs";
+const LEGACY_EMBEDDED_ARTWORK_CACHE_DIR_NAME: &str = "tagmaster_dj_embedded_covers";
+
+/// Retourne le sous-dossier temporaire dédié aux miniatures de pochettes embarquées.
+pub fn embedded_artwork_cache_dir() -> PathBuf {
+    std::env::temp_dir().join(EMBEDDED_ARTWORK_CACHE_DIR_NAME)
+}
+
+/// Purge l'intégralité des miniatures stockées dans le dossier donné.
+pub fn clear_embedded_artwork_cache_in(dir: &Path) -> Result<usize, String> {
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+
+    let entries = std::fs::read_dir(dir).map_err(|err| {
+        format!(
+            "Impossible de lire le cache de miniatures {} : {err}",
+            dir.display()
+        )
+    })?;
+
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+
+    Ok(removed)
+}
+
+/// Purge toutes les miniatures temporaires du cache (y compris l'ancien dossier legacy si présent).
+pub fn clear_embedded_artwork_cache() -> Result<usize, String> {
+    let dir = embedded_artwork_cache_dir();
+    let removed = clear_embedded_artwork_cache_in(&dir)?;
+
+    let legacy_dir = std::env::temp_dir().join(LEGACY_EMBEDDED_ARTWORK_CACHE_DIR_NAME);
+    if legacy_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&legacy_dir);
+    }
+
+    Ok(removed)
+}
+
+/// Supprime une miniature ciblée uniquement si elle se trouve bien dans `dir`
+/// (protection contre toute suppression hors du cache temporaire).
+pub fn remove_embedded_artwork_file_in(dir: &Path, raw_path: &str) -> bool {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() || !dir.is_dir() {
+        return false;
+    }
+
+    let target = PathBuf::from(trimmed);
+    if !target.is_file() {
+        return false;
+    }
+
+    let Ok(canon_dir) = std::fs::canonicalize(dir) else {
+        return false;
+    };
+    let Ok(canon_target) = std::fs::canonicalize(&target) else {
+        return false;
+    };
+
+    if !canon_target.starts_with(&canon_dir) {
+        return false;
+    }
+
+    std::fs::remove_file(&canon_target).is_ok()
+}
+
+/// Supprime les miniatures temporaires associées aux pistes retirées de la file.
+pub fn remove_embedded_artwork_files(paths: &[String]) -> usize {
+    let dir = embedded_artwork_cache_dir();
+    paths
+        .iter()
+        .filter(|p| remove_embedded_artwork_file_in(&dir, p))
+        .count()
+}
+
+/// Supprime les miniatures orphelines dans `dir` qui ne sont référencées par aucune piste active.
+pub fn cleanup_orphan_embedded_artworks_in(dir: &Path, active_paths: &HashSet<PathBuf>) -> usize {
+    if !dir.is_dir() {
+        return 0;
+    }
+
+    let active_canonical: HashSet<PathBuf> = active_paths
+        .iter()
+        .filter_map(|p| std::fs::canonicalize(p).ok())
+        .collect();
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_active = std::fs::canonicalize(&path)
+            .ok()
+            .is_some_and(|canon| active_canonical.contains(&canon));
+        if !is_active && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+
+    removed
+}
+
+/// Nettoie au démarrage les miniatures orphelines en préservant celles d'une session active.
+pub fn cleanup_orphan_embedded_artworks(active_paths: &HashSet<PathBuf>) -> usize {
+    let dir = embedded_artwork_cache_dir();
+    let removed = cleanup_orphan_embedded_artworks_in(&dir, active_paths);
+
+    let legacy_dir = std::env::temp_dir().join(LEGACY_EMBEDDED_ARTWORK_CACHE_DIR_NAME);
+    if legacy_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&legacy_dir);
+    }
+
+    removed
+}
+
 fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Option<String> {
     let data = picture.data();
     if data.is_empty() {
@@ -66,7 +193,7 @@ fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Op
         _ => "jpg",
     };
 
-    let cache_dir = std::env::temp_dir().join("tagmaster_dj_embedded_covers");
+    let cache_dir = embedded_artwork_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok()?;
     let dest_path = cache_dir.join(format!("cover_{hash:016x}.{ext}"));
 
@@ -75,6 +202,32 @@ fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Op
     }
 
     Some(dest_path.to_string_lossy().into_owned())
+}
+
+/// Extraction rapide en lecture seule de la pochette intégrée d'un fichier audio
+/// (ignore le décodage des frames audio via `read_properties(false)` pour rester fluide sur 3 000+ pistes).
+pub fn extract_embedded_artwork_fast(path: &Path) -> Option<String> {
+    let tagged_file = Probe::open(path)
+        .ok()?
+        .options(ParseOptions::new().read_properties(false))
+        .guess_file_type()
+        .ok()?
+        .read()
+        .ok()?;
+
+    let primary = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
+    for tag in primary.into_iter().chain(tagged_file.tags().iter()) {
+        if let Some(pic) = tag
+            .pictures()
+            .iter()
+            .find(|p| p.pic_type() == PictureType::CoverFront && !p.data().is_empty())
+            .or_else(|| tag.pictures().iter().find(|p| !p.data().is_empty()))
+        {
+            return extract_embedded_artwork_to_temp(path, pic);
+        }
+    }
+
+    None
 }
 
 /// Lecture seule des tags existants sur un fichier source (ne modifie jamais le fichier).
@@ -386,11 +539,19 @@ mod tests {
     /// Construit un fichier MP3 minimal valide (frames MPEG-1 Layer III 128kbps 44.1kHz)
     /// pour tester la lecture, la Table Rase et la réécriture complète via `lofty`.
     fn create_minimal_valid_mp3() -> PathBuf {
+        static TEST_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let seq = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock error")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("tagmaster_dj_tag_test_{nanos}.mp3"));
+        let path = std::env::temp_dir().join(format!(
+            "tagmaster_dj_tag_test_{}_{}_{}.mp3",
+            std::process::id(),
+            nanos,
+            seq
+        ));
 
         // Header MPEG1 Layer III, no CRC, 128 kbps (0x90), 44100 Hz (0x00), Joint Stereo (0x64)
         // Taille d'une frame : floor(144 * 128000 / 44100) = 417 bytes
@@ -636,5 +797,83 @@ mod tests {
         );
 
         let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn clears_embedded_artwork_cache_and_removes_targeted_file_safely() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let cache_dir = std::env::temp_dir().join(format!(
+            "tagmaster_dj_thumbs_test_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        let outside_file = std::env::temp_dir().join(format!(
+            "tagmaster_dj_outside_cover_{}_{}.jpg",
+            std::process::id(),
+            nanos
+        ));
+        fs::create_dir_all(&cache_dir).expect("create temp cache dir");
+
+        let cover_a = cache_dir.join("cover_a.jpg");
+        let cover_b = cache_dir.join("cover_b.png");
+        fs::write(&cover_a, b"jpg-a").expect("write cover_a");
+        fs::write(&cover_b, b"png-b").expect("write cover_b");
+        fs::write(&outside_file, b"user-file").expect("write outside file");
+
+        // Suppression ciblée autorisée uniquement dans le dossier cache
+        assert!(remove_embedded_artwork_file_in(
+            &cache_dir,
+            &cover_a.to_string_lossy()
+        ));
+        assert!(!cover_a.exists());
+        assert!(cover_b.is_file());
+
+        // Refus strict pour tout fichier en dehors du dossier cache
+        assert!(!remove_embedded_artwork_file_in(
+            &cache_dir,
+            &outside_file.to_string_lossy()
+        ));
+        assert!(outside_file.is_file());
+
+        // Purge complète du dossier cache
+        let removed =
+            clear_embedded_artwork_cache_in(&cache_dir).expect("clear cache should succeed");
+        assert_eq!(removed, 1);
+        assert!(!cover_b.exists());
+
+        let _ = fs::remove_dir_all(&cache_dir);
+        let _ = fs::remove_file(&outside_file);
+    }
+
+    #[test]
+    fn cleans_orphan_embedded_artworks_while_preserving_active_session_files() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let cache_dir = std::env::temp_dir().join(format!(
+            "tagmaster_dj_orphans_test_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        fs::create_dir_all(&cache_dir).expect("create temp orphan dir");
+
+        let active_cover = cache_dir.join("cover_active.jpg");
+        let orphan_cover = cache_dir.join("cover_orphan.jpg");
+        fs::write(&active_cover, b"active").expect("write active");
+        fs::write(&orphan_cover, b"orphan").expect("write orphan");
+
+        let mut active_set = HashSet::new();
+        active_set.insert(active_cover.clone());
+
+        let removed = cleanup_orphan_embedded_artworks_in(&cache_dir, &active_set);
+        assert_eq!(removed, 1);
+        assert!(active_cover.is_file());
+        assert!(!orphan_cover.exists());
+
+        let _ = fs::remove_dir_all(&cache_dir);
     }
 }

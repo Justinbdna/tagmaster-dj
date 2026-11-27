@@ -38,10 +38,24 @@ pub enum TrackStatus {
 #[serde(rename_all = "snake_case")]
 pub enum MetadataSource {
     AppleMusic,
+    Deezer,
+    MusicBrainz,
     YtDlp,
     Genius,
     Discogs,
     Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchSource {
+    Auto,
+    AppleMusic,
+    Deezer,
+    Youtube,
+    Soundcloud,
+    MusicBrainz,
+    Discogs,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -286,6 +300,10 @@ pub struct ArtworkCandidate {
 pub struct ApiKeysSettings {
     pub genius_api_key: String,
     pub has_genius_api_key: bool,
+    #[serde(default)]
+    pub discogs_token: String,
+    #[serde(default)]
+    pub has_discogs_token: bool,
     pub env_file_path: String,
 }
 

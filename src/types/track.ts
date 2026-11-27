@@ -19,6 +19,8 @@ export type TrackStatus =
 
 export type MetadataSource =
   | "apple_music"
+  | "deezer"
+  | "music_brainz"
   | "yt_dlp"
   | "genius"
   | "discogs"
@@ -100,7 +102,14 @@ export interface TrackCandidate {
   durationSecs?: number;
 }
 
-export type QuickSearchSource = "apple_music" | "yt_dlp";
+export type QuickSearchSource =
+  | "auto"
+  | "apple_music"
+  | "deezer"
+  | "youtube"
+  | "soundcloud"
+  | "music_brainz"
+  | "discogs";
 
 export interface ArtworkCandidate {
   artworkUrl: string;
@@ -115,6 +124,8 @@ export interface ArtworkCandidate {
 export interface ApiKeysSettings {
   geniusApiKey: string;
   hasGeniusApiKey: boolean;
+  discogsToken: string;
+  hasDiscogsToken: boolean;
   envFilePath: string;
 }
 

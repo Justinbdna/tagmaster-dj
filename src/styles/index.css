@@ -99,6 +99,15 @@
     --badge-duplicate-bg: rgba(168, 85, 247, 0.18);
     --badge-duplicate-border: rgba(192, 132, 252, 0.38);
     --badge-duplicate-text: #d8b4fe;
+    --badge-deezer-bg: rgba(168, 85, 247, 0.18);
+    --badge-deezer-border: rgba(192, 132, 252, 0.4);
+    --badge-deezer-text: #e9d5ff;
+    --badge-musicbrainz-bg: rgba(234, 179, 8, 0.18);
+    --badge-musicbrainz-border: rgba(250, 204, 21, 0.38);
+    --badge-musicbrainz-text: #fde047;
+    --badge-discogs-bg: rgba(20, 184, 166, 0.18);
+    --badge-discogs-border: rgba(45, 212, 191, 0.38);
+    --badge-discogs-text: #5eead4;
 
     color-scheme: dark;
     font-family: var(--font-sans);
@@ -197,6 +206,15 @@
     --badge-duplicate-bg: rgba(109, 40, 217, 0.11);
     --badge-duplicate-border: rgba(109, 40, 217, 0.32);
     --badge-duplicate-text: #6d28d9;
+    --badge-deezer-bg: rgba(126, 34, 206, 0.11);
+    --badge-deezer-border: rgba(126, 34, 206, 0.34);
+    --badge-deezer-text: #6b21a8;
+    --badge-musicbrainz-bg: rgba(161, 98, 7, 0.12);
+    --badge-musicbrainz-border: rgba(161, 98, 7, 0.34);
+    --badge-musicbrainz-text: #854d0e;
+    --badge-discogs-bg: rgba(15, 118, 110, 0.12);
+    --badge-discogs-border: rgba(15, 118, 110, 0.34);
+    --badge-discogs-text: #115e59;
 
     color-scheme: light;
   }
@@ -405,6 +423,24 @@ html.light[data-glass-tint="clear"] .content-surface {
   background-color: var(--badge-duplicate-bg);
   border-color: var(--badge-duplicate-border);
   color: var(--badge-duplicate-text);
+}
+
+.badge-deezer {
+  background-color: var(--badge-deezer-bg);
+  border-color: var(--badge-deezer-border);
+  color: var(--badge-deezer-text);
+}
+
+.badge-musicbrainz {
+  background-color: var(--badge-musicbrainz-bg);
+  border-color: var(--badge-musicbrainz-border);
+  color: var(--badge-musicbrainz-text);
+}
+
+.badge-discogs {
+  background-color: var(--badge-discogs-bg);
+  border-color: var(--badge-discogs-border);
+  color: var(--badge-discogs-text);
 }
 
 /* High-Contrast Modal & Comparator Cards */

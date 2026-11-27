@@ -1,24 +1,28 @@
+import { useEffect, useRef, useState } from "react";
 import {
-  FolderOpen,
+  Check,
+  ChevronUp,
   Loader2,
   RotateCcw,
   Sparkles,
   Upload,
 } from "lucide-react";
 import type {
-  ExportFormatMode,
   ExportMode,
   HardwareProfile,
   PipelineProgressEvent,
   QueueStats,
 } from "../../types/track";
+import {
+  HARDWARE_PROFILE_LABELS,
+  HardwareProfileIcon,
+} from "../ui/HardwareIcons";
 
 interface FloatingActionDockProps {
   queueStats: QueueStats;
   protectedCount: number;
   totalSizeLabel: string;
   exportMode: ExportMode;
-  formatMode: ExportFormatMode;
   hardwareProfile: HardwareProfile;
   notice: string | null;
   isRunningBatch: boolean;
@@ -27,27 +31,17 @@ interface FloatingActionDockProps {
   onRunLookup: () => void;
   onRunBatch: () => void;
   onForceRunBatch: () => void;
-  onOpenExportFolder: () => void;
+  onSelectHardwareProfile: (profile: HardwareProfile) => void;
   onOpenSettings: () => void;
 }
 
-function getProfilePillLabel(
-  profile: HardwareProfile,
-  formatMode: ExportFormatMode,
-): string {
-  if (profile === "psp") return "PSP 3000 · MP3 320k";
-  if (profile === "ipod") {
-    return formatMode === "force_mp3" ? "iPod · MP3 320k" : "iPod · 600px";
-  }
-  return formatMode === "force_mp3" ? "Standard · MP3 320k" : "Standard";
-}
+const PROFILE_OPTIONS: HardwareProfile[] = ["standard", "ipod", "psp"];
 
 export function FloatingActionDock({
   queueStats,
   protectedCount,
   totalSizeLabel,
   exportMode,
-  formatMode,
   hardwareProfile,
   notice,
   isRunningBatch,
@@ -56,9 +50,33 @@ export function FloatingActionDock({
   onRunLookup,
   onRunBatch,
   onForceRunBatch,
-  onOpenExportFolder,
+  onSelectHardwareProfile,
   onOpenSettings,
 }: FloatingActionDockProps) {
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target as Node)
+      ) {
+        setProfileMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
+
   const resolvedCount =
     queueStats.identifiedCount +
     queueStats.exportedCount +
@@ -114,11 +132,15 @@ export function FloatingActionDock({
       notice ?? "Prêt à identifier puis exporter sans modifier les originaux";
   }
 
+  const showForceRetry =
+    !isRunningBatch &&
+    (queueStats.exportedCount > 0 || queueStats.failedCount > 0);
+
   return (
     <footer className="liquid-glass flex shrink-0 flex-wrap items-center justify-between gap-4 rounded-[22px] px-5 py-3.5">
       {/* Left: Single-source queue metrics & real-time progress bar */}
       <div className="relative z-10 min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-medium text-primary">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] font-medium text-primary">
           <span className="tabular-nums">
             {queueStats.totalCount} piste{queueStats.totalCount > 1 ? "s" : ""}
           </span>
@@ -132,10 +154,10 @@ export function FloatingActionDock({
           <button
             type="button"
             onClick={onOpenSettings}
-            title="Changer le profil matériel dans Paramètres"
+            title="Ouvrir les paramètres de profil matériel"
             className="cursor-pointer rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors hover:bg-[var(--content-card-hover)]"
           >
-            {getProfilePillLabel(hardwareProfile, formatMode)}
+            {HARDWARE_PROFILE_LABELS[hardwareProfile]}
           </button>
           {protectedCount > 0 && (
             <>
@@ -169,38 +191,90 @@ export function FloatingActionDock({
         </div>
       </div>
 
-      {/* Right: Folder icon + Reset icon + Identifier (read-only) + Exporter */}
+      {/* Right: Profile switcher popover + conditional Reset + Identifier + Exporter */}
       <div className="relative z-10 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={onOpenExportFolder}
-          title="Ouvrir le dossier Documents/Tagmaster_DJ_Export"
-          aria-label="Ouvrir le dossier d'export"
-          className="liquid-glass-pill flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-secondary hover:text-primary"
-        >
-          <FolderOpen className="h-4 w-4 text-sky-400" strokeWidth={1.9} />
-        </button>
+        <div ref={profileMenuRef} className="relative">
+          <button
+            type="button"
+            disabled={isRunningBatch}
+            onClick={() => setProfileMenuOpen((prev) => !prev)}
+            aria-haspopup="listbox"
+            aria-expanded={profileMenuOpen}
+            title="Changer le profil d'export matériel"
+            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <HardwareProfileIcon
+              profile={hardwareProfile}
+              className="text-semantic-info h-3.5 w-3.5 shrink-0"
+            />
+            <span>{HARDWARE_PROFILE_LABELS[hardwareProfile]}</span>
+            <ChevronUp
+              className={`h-3 w-3 text-secondary transition-transform duration-150 ${
+                profileMenuOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
 
-        {!isRunningBatch &&
-          (queueStats.exportedCount > 0 ||
-            queueStats.needsReviewCount > 0 ||
-            queueStats.failedCount > 0) && (
-            <button
-              type="button"
-              onClick={onForceRunBatch}
-              title="Tout relancer dans le mode d'export actuel"
-              aria-label="Tout relancer"
-              className="liquid-glass-pill flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-secondary hover:text-primary"
+          {profileMenuOpen && (
+            <div
+              role="listbox"
+              aria-label="Profil d'export matériel"
+              className="modal-surface absolute bottom-full right-0 z-40 mb-2 w-40 rounded-[16px] p-1.5"
             >
-              <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />
-            </button>
+              {PROFILE_OPTIONS.map((profileId) => {
+                const isSelected = hardwareProfile === profileId;
+                return (
+                  <button
+                    key={profileId}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onSelectHardwareProfile(profileId);
+                      setProfileMenuOpen(false);
+                    }}
+                    className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-[10px] px-3 py-2 text-left text-[12px] font-medium transition-colors ${
+                      isSelected
+                        ? "bg-sky-500/15 text-primary"
+                        : "text-secondary hover:bg-[var(--content-card-hover)] hover:text-primary"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <HardwareProfileIcon
+                        profile={profileId}
+                        className={`h-4 w-4 shrink-0 ${
+                          isSelected ? "text-semantic-info" : "text-muted"
+                        }`}
+                      />
+                      <span>{HARDWARE_PROFILE_LABELS[profileId]}</span>
+                    </span>
+                    {isSelected && (
+                      <Check className="text-semantic-info h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           )}
+        </div>
+
+        {showForceRetry && (
+          <button
+            type="button"
+            onClick={onForceRunBatch}
+            title="Tout relancer dans le mode d'export actuel"
+            aria-label="Tout relancer"
+            className="liquid-glass-pill flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-secondary hover:text-primary"
+          >
+            <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />
+          </button>
+        )}
 
         <button
           type="button"
           onClick={onRunLookup}
           disabled={isRunningBatch || queueStats.identifiableCount === 0}
-          title="Identifier les pistes en attente via Apple Music (lecture seule, sans exporter)"
+          title="Identifier les pistes en attente (lecture seule, sans exporter)"
           className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-medium text-primary disabled:cursor-not-allowed disabled:opacity-45"
         >
           {isRunningBatch && batchAction === "lookup" ? (

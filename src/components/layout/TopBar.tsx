@@ -65,19 +65,27 @@ export function TopBar({
 
       {/* Interactive Liquid Glass Controls */}
       <div className="relative z-10 flex flex-wrap items-center gap-2.5">
-        {/* Segmented Control: Flat vs Dynamic Export Mode */}
+        {/* Segmented Control: Dynamic vs Flat Export Mode with smooth sliding pill */}
         <div
-          className="liquid-glass-pill flex items-center rounded-full p-1"
+          className="liquid-glass-pill relative grid grid-cols-2 items-center rounded-full p-1"
           role="group"
           aria-label="Mode d'arborescence d'export"
         >
+          <span
+            aria-hidden="true"
+            className="liquid-glass-active pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full transition-transform duration-200 ease-out"
+            style={{
+              transform:
+                exportMode === "flat" ? "translateX(100%)" : "translateX(0%)",
+            }}
+          />
           <button
             type="button"
             onClick={() => onChangeExportMode("dynamic")}
             title="Export / Artiste / Album / Artiste - Titre"
-            className={`flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-all duration-200 ${
+            className={`relative z-10 flex cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 ${
               exportMode === "dynamic"
-                ? "liquid-glass-active text-primary"
+                ? "text-primary"
                 : "text-secondary hover:text-primary"
             }`}
           >
@@ -89,9 +97,9 @@ export function TopBar({
             type="button"
             onClick={() => onChangeExportMode("flat")}
             title="Export / Artiste - Titre (tout dans un seul dossier)"
-            className={`flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-all duration-200 ${
+            className={`relative z-10 flex cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-200 ${
               exportMode === "flat"
-                ? "liquid-glass-active text-primary"
+                ? "text-primary"
                 : "text-secondary hover:text-primary"
             }`}
           >

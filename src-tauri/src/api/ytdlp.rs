@@ -443,9 +443,31 @@ async fn run_ytdlp_platform_search(
     Ok(parsed)
 }
 
-async fn search_candidates_with_binary(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum YtDlpTarget {
+    Both,
+    Youtube,
+    Soundcloud,
+}
+
+pub fn build_search_specs(
+    target: YtDlpTarget,
+    cleaned_query: &str,
+) -> Vec<(String, &'static str)> {
+    match target {
+        YtDlpTarget::Both => vec![
+            (format!("ytsearch5:{cleaned_query}"), "YouTube"),
+            (format!("scsearch3:{cleaned_query}"), "SoundCloud"),
+        ],
+        YtDlpTarget::Youtube => vec![(format!("ytsearch5:{cleaned_query}"), "YouTube")],
+        YtDlpTarget::Soundcloud => vec![(format!("scsearch5:{cleaned_query}"), "SoundCloud")],
+    }
+}
+
+async fn search_candidates_with_binary_for_target(
     binary: Option<PathBuf>,
     raw_query: &str,
+    target: YtDlpTarget,
 ) -> Result<Vec<TrackCandidate>, YtDlpError> {
     let cleaned_query = raw_query.split_whitespace().collect::<Vec<_>>().join(" ");
     if cleaned_query.is_empty() {
@@ -456,30 +478,19 @@ async fn search_candidates_with_binary(
         return Err(YtDlpError::NotInstalled);
     };
 
-    let yt_expr = format!("ytsearch5:{cleaned_query}");
-    let sc_expr = format!("scsearch3:{cleaned_query}");
-
-    let yt_res = run_ytdlp_platform_search(&bin_path, &yt_expr, "YouTube", &cleaned_query).await;
-    if matches!(yt_res, Err(YtDlpError::NotInstalled)) {
-        return Err(YtDlpError::NotInstalled);
-    }
-
-    let sc_res = run_ytdlp_platform_search(&bin_path, &sc_expr, "SoundCloud", &cleaned_query).await;
-    if matches!(sc_res, Err(YtDlpError::NotInstalled)) {
-        return Err(YtDlpError::NotInstalled);
-    }
-
+    let specs = build_search_specs(target, &cleaned_query);
     let mut combined: Vec<TrackCandidate> = Vec::new();
     let mut last_err: Option<YtDlpError> = None;
 
-    match yt_res {
-        Ok(cands) => combined.extend(cands),
-        Err(err) => last_err = Some(err),
-    }
-
-    match sc_res {
-        Ok(cands) => combined.extend(cands),
-        Err(err) => last_err = Some(err),
+    for (expr, platform) in specs {
+        let res = run_ytdlp_platform_search(&bin_path, &expr, platform, &cleaned_query).await;
+        if matches!(res, Err(YtDlpError::NotInstalled)) {
+            return Err(YtDlpError::NotInstalled);
+        }
+        match res {
+            Ok(cands) => combined.extend(cands),
+            Err(err) => last_err = Some(err),
+        }
     }
 
     if combined.is_empty()
@@ -510,9 +521,40 @@ async fn search_candidates_with_binary(
     Ok(ranked)
 }
 
+#[cfg(test)]
+async fn search_candidates_with_binary(
+    binary: Option<PathBuf>,
+    raw_query: &str,
+) -> Result<Vec<TrackCandidate>, YtDlpError> {
+    search_candidates_with_binary_for_target(binary, raw_query, YtDlpTarget::Both).await
+}
+
 /// Recherche des métadonnées sur YouTube (`ytsearch5`) et SoundCloud (`scsearch3`) via `yt-dlp`.
 pub async fn search_candidates(raw_query: &str) -> Result<Vec<TrackCandidate>, YtDlpError> {
-    search_candidates_with_binary(resolve_ytdlp_binary(), raw_query).await
+    search_candidates_with_binary_for_target(resolve_ytdlp_binary(), raw_query, YtDlpTarget::Both)
+        .await
+}
+
+/// Recherche uniquement sur YouTube (`ytsearch5`) via `yt-dlp`.
+pub async fn search_youtube_candidates(raw_query: &str) -> Result<Vec<TrackCandidate>, YtDlpError> {
+    search_candidates_with_binary_for_target(
+        resolve_ytdlp_binary(),
+        raw_query,
+        YtDlpTarget::Youtube,
+    )
+    .await
+}
+
+/// Recherche uniquement sur SoundCloud (`scsearch5`) via `yt-dlp`.
+pub async fn search_soundcloud_candidates(
+    raw_query: &str,
+) -> Result<Vec<TrackCandidate>, YtDlpError> {
+    search_candidates_with_binary_for_target(
+        resolve_ytdlp_binary(),
+        raw_query,
+        YtDlpTarget::Soundcloud,
+    )
+    .await
 }
 
 #[cfg(test)]

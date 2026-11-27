@@ -13,8 +13,8 @@ use models::{
     ApiKeysSettings, ArtworkCandidate, AudioTrackItem, BatchSummary, BatchTrackInput,
     DuplicateGroup, ExistingTrackTags, ExportFormatMode, ExportMode, FfmpegStatus,
     HardwareProfile, HealthStatus, LookupStatus, ManualExportInput, ManualExportResult,
-    MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult, SessionCache,
-    SessionCacheSummary, TrackCandidate, TrackStatus,
+    MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult, SearchSource,
+    SessionCache, SessionCacheSummary, TrackCandidate, TrackStatus,
 };
 use tagger::rules::{RawMetadataInput, normalize_track_metadata};
 use tauri::{Emitter, Manager};
@@ -85,7 +85,10 @@ async fn read_track_tags(source_path: String) -> Result<ExistingTrackTags, Strin
 }
 
 #[tauri::command]
-async fn lookup_track_metadata(source_path: String) -> Result<MetadataLookupResult, String> {
+async fn lookup_track_metadata(
+    app: tauri::AppHandle,
+    source_path: String,
+) -> Result<MetadataLookupResult, String> {
     let path = PathBuf::from(&source_path);
     let path_for_read = path.clone();
     let existing = tauri::async_runtime::spawn_blocking(move || {
@@ -94,7 +97,7 @@ async fn lookup_track_metadata(source_path: String) -> Result<MetadataLookupResu
     .await
     .unwrap_or_default();
 
-    api::resolve_track_metadata(&path, &existing).await
+    api::resolve_track_metadata(&path, &existing, Some(&app)).await
 }
 
 #[tauri::command]
@@ -181,7 +184,7 @@ async fn run_batch_pipeline(
             .await
             .unwrap_or_default();
 
-            match api::resolve_track_metadata(&source_path, &existing).await {
+            match api::resolve_track_metadata(&source_path, &existing, Some(&app)).await {
                 Ok(lookup)
                     if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
                 {
@@ -377,6 +380,15 @@ async fn search_ytdlp_candidates(query: String) -> Result<Vec<TrackCandidate>, S
 }
 
 #[tauri::command]
+async fn search_track_candidates(
+    app: tauri::AppHandle,
+    source: SearchSource,
+    query: String,
+) -> Result<Vec<TrackCandidate>, String> {
+    api::search_candidates_by_source(source, &query, Some(&app)).await
+}
+
+#[tauri::command]
 async fn search_artwork_candidates(query: String) -> Result<Vec<ArtworkCandidate>, String> {
     api::apple_music::search_artwork_candidates(&query).await
 }
@@ -392,6 +404,14 @@ fn save_genius_api_key(
     api_key: String,
 ) -> Result<ApiKeysSettings, String> {
     api::genius::save_genius_api_key(&app, &api_key)
+}
+
+#[tauri::command]
+fn save_discogs_token(
+    app: tauri::AppHandle,
+    token: String,
+) -> Result<ApiKeysSettings, String> {
+    api::genius::save_discogs_token(&app, &token)
 }
 
 #[tauri::command]
@@ -559,7 +579,7 @@ async fn run_batch_lookup(
         .await
         .unwrap_or_default();
 
-        match api::resolve_track_metadata(&source_path, &existing).await {
+        match api::resolve_track_metadata(&source_path, &existing, Some(&app)).await {
             Ok(lookup)
                 if lookup.status == LookupStatus::Matched && lookup.metadata.is_some() =>
             {
@@ -709,9 +729,11 @@ pub fn run() {
             run_batch_pipeline,
             search_apple_music_candidates,
             search_ytdlp_candidates,
+            search_track_candidates,
             search_artwork_candidates,
             get_api_keys_settings,
             save_genius_api_key,
+            save_discogs_token,
             export_manual_track,
             get_session_cache_summary,
             load_session_cache,

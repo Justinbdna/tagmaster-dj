@@ -346,7 +346,6 @@ export function WorkspacePage() {
                   protectedCount={library.protectedCount}
                   totalSizeLabel={library.totalSizeLabel}
                   exportMode={exportMode}
-                  formatMode={formatMode}
                   hardwareProfile={hardwareProfile}
                   notice={library.notice}
                   isRunningBatch={library.isRunningBatch}
@@ -357,7 +356,7 @@ export function WorkspacePage() {
                   onForceRunBatch={() =>
                     void handleRunBatchExport({ forceAll: true })
                   }
-                  onOpenExportFolder={() => void library.openExportFolder()}
+                  onSelectHardwareProfile={setHardwareProfile}
                   onOpenSettings={() => setActiveView("settings")}
                 />
               </>

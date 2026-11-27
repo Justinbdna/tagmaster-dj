@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import { DragOverlay } from "../components/dropzone/DragOverlay";
 import { DropZoneCard } from "../components/dropzone/DropZoneCard";
@@ -12,6 +12,7 @@ import { FloatingActionDock } from "../components/progress/FloatingActionDock";
 import { ReviewQueueView } from "../components/review/ReviewQueueView";
 import { SettingsView } from "../components/settings/SettingsView";
 import { TrackQueueList } from "../components/tracks/TrackQueueList";
+import { DependencyBanner } from "../components/ui/DependencyBanner";
 import {
   ToastNotification,
   type ToastPayload,
@@ -19,12 +20,17 @@ import {
 import { useAppHealth } from "../hooks/useAppHealth";
 import { useTheme } from "../hooks/useTheme";
 import { useTrackLibrary } from "../hooks/useTrackLibrary";
+import {
+  checkRuntimeDependencies,
+  isTauriEnvironment,
+} from "../services/tauriBridge";
 import type {
   AppView,
   ExportFormatMode,
   ExportMode,
   HardwareProfile,
   ManualExportResult,
+  RuntimeDependenciesStatus,
   TrackMetadata,
 } from "../types/track";
 
@@ -52,6 +58,24 @@ export function WorkspacePage() {
     string | null
   >(null);
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const [depsStatus, setDepsStatus] =
+    useState<RuntimeDependenciesStatus | null>(null);
+  const [depsBannerDismissed, setDepsBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    let active = true;
+    checkRuntimeDependencies()
+      .then((res) => {
+        if (active) setDepsStatus(res);
+      })
+      .catch(() => {
+        // Non-blocking startup diagnostic
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const setFormatMode = useCallback((mode: ExportFormatMode) => {
     setFormatModeState(mode);
@@ -297,6 +321,13 @@ export function WorkspacePage() {
             setActiveView("library");
           }}
         />
+
+        {!depsBannerDismissed && (
+          <DependencyBanner
+            status={depsStatus}
+            onDismiss={() => setDepsBannerDismissed(true)}
+          />
+        )}
 
         {library.errorMessage && (
           <div className="modal-surface text-semantic-danger flex shrink-0 items-center justify-between gap-3 rounded-[16px] border-rose-500/35 px-4 py-2.5 text-[12.5px] font-medium">

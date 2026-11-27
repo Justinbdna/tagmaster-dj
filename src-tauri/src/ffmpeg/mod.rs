@@ -27,15 +27,49 @@ impl std::fmt::Display for FfmpegError {
     }
 }
 
-/// Détecte le binaire `ffmpeg` dans le `PATH` (avec repli sur les emplacements Homebrew macOS).
+/// Détecte le binaire `ffmpeg` dans le `PATH`, Homebrew (macOS) et Winget/Chocolatey/Scoop (Windows).
 pub fn resolve_ffmpeg_binary() -> Option<PathBuf> {
-    let candidates: &[&str] = &[
-        "ffmpeg",
-        "/opt/homebrew/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/usr/bin/ffmpeg",
-    ];
-    resolve_ffmpeg_from_candidates(candidates)
+    let mut candidates: Vec<String> = vec!["ffmpeg".to_string()];
+
+    #[cfg(unix)]
+    {
+        candidates.extend([
+            "/opt/homebrew/bin/ffmpeg".to_string(),
+            "/usr/local/bin/ffmpeg".to_string(),
+            "/usr/bin/ffmpeg".to_string(),
+        ]);
+    }
+
+    #[cfg(windows)]
+    {
+        candidates.push("ffmpeg.exe".to_string());
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            let winget_link = PathBuf::from(&local_app_data)
+                .join("Microsoft")
+                .join("WinGet")
+                .join("Links")
+                .join("ffmpeg.exe");
+            candidates.push(winget_link.to_string_lossy().into_owned());
+        }
+        if let Ok(program_data) = std::env::var("ProgramData") {
+            let choco = PathBuf::from(&program_data)
+                .join("chocolatey")
+                .join("bin")
+                .join("ffmpeg.exe");
+            candidates.push(choco.to_string_lossy().into_owned());
+        }
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            let scoop = PathBuf::from(&user_profile)
+                .join("scoop")
+                .join("shims")
+                .join("ffmpeg.exe");
+            candidates.push(scoop.to_string_lossy().into_owned());
+        }
+        candidates.push(r"C:\ffmpeg\bin\ffmpeg.exe".to_string());
+    }
+
+    let refs: Vec<&str> = candidates.iter().map(String::as_str).collect();
+    resolve_ffmpeg_from_candidates(&refs)
 }
 
 fn resolve_ffmpeg_from_candidates(candidates: &[&str]) -> Option<PathBuf> {

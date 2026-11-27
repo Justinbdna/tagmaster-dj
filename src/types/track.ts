@@ -263,3 +263,18 @@ export interface FfmpegStatus {
   version?: string;
   binaryPath?: string;
 }
+
+export interface BinaryDependencyStatus {
+  name: string;
+  available: boolean;
+  version?: string;
+  binaryPath?: string;
+}
+
+export interface RuntimeDependenciesStatus {
+  platform: string;
+  ffmpeg: BinaryDependencyStatus;
+  ytdlp: BinaryDependencyStatus;
+  allAvailable: boolean;
+  installCommand?: string;
+}

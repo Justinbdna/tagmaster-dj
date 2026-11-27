@@ -11,10 +11,11 @@ use std::path::PathBuf;
 
 use models::{
     ApiKeysSettings, ArtworkCandidate, AudioTrackItem, BatchSummary, BatchTrackInput,
-    DuplicateGroup, ExistingTrackTags, ExportFormatMode, ExportMode, FfmpegStatus,
-    HardwareProfile, HealthStatus, LookupStatus, ManualExportInput, ManualExportResult,
-    MetadataLookupResult, MetadataSource, PipelineProgressEvent, ScanResult, SearchSource,
-    SessionCache, SessionCacheSummary, TrackCandidate, TrackStatus,
+    BinaryDependencyStatus, DuplicateGroup, ExistingTrackTags, ExportFormatMode, ExportMode,
+    FfmpegStatus, HardwareProfile, HealthStatus, LookupStatus, ManualExportInput,
+    ManualExportResult, MetadataLookupResult, MetadataSource, PipelineProgressEvent,
+    RuntimeDependenciesStatus, ScanResult, SearchSource, SessionCache, SessionCacheSummary,
+    TrackCandidate, TrackStatus,
 };
 use tagger::rules::{RawMetadataInput, normalize_track_metadata};
 use tauri::{Emitter, Manager};
@@ -696,9 +697,89 @@ fn detect_duplicate_groups(tracks: Vec<AudioTrackItem>) -> Vec<DuplicateGroup> {
     duplicates::detect_duplicate_groups(&tracks)
 }
 
+/// Construit la commande d'installation adaptée à l'OS selon les dépendances manquantes.
+pub fn build_dependency_install_command(
+    platform: &str,
+    missing_ffmpeg: bool,
+    missing_ytdlp: bool,
+) -> Option<String> {
+    if !missing_ffmpeg && !missing_ytdlp {
+        return None;
+    }
+
+    match platform {
+        "macos" => {
+            let mut pkgs = Vec::new();
+            if missing_ffmpeg {
+                pkgs.push("ffmpeg");
+            }
+            if missing_ytdlp {
+                pkgs.push("yt-dlp");
+            }
+            Some(format!("brew install {}", pkgs.join(" ")))
+        }
+        "windows" => {
+            let mut pkgs = Vec::new();
+            if missing_ffmpeg {
+                pkgs.push("Gyan.FFmpeg");
+            }
+            if missing_ytdlp {
+                pkgs.push("yt-dlp.yt-dlp");
+            }
+            Some(format!("winget install {}", pkgs.join(" ")))
+        }
+        _ => {
+            let mut pkgs = Vec::new();
+            if missing_ffmpeg {
+                pkgs.push("ffmpeg");
+            }
+            if missing_ytdlp {
+                pkgs.push("yt-dlp");
+            }
+            Some(format!("sudo apt install {}", pkgs.join(" ")))
+        }
+    }
+}
+
 #[tauri::command]
 fn check_ffmpeg_status() -> FfmpegStatus {
     ffmpeg::check_ffmpeg_status()
+}
+
+#[tauri::command]
+async fn check_runtime_dependencies() -> Result<RuntimeDependenciesStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let ffmpeg_raw = ffmpeg::check_ffmpeg_status();
+        let ffmpeg_dep = BinaryDependencyStatus {
+            name: "ffmpeg".to_string(),
+            available: ffmpeg_raw.available,
+            version: ffmpeg_raw.version,
+            binary_path: ffmpeg_raw.binary_path,
+        };
+        let ytdlp_dep = api::ytdlp::check_ytdlp_status();
+
+        let platform = if cfg!(target_os = "macos") {
+            "macos"
+        } else if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "linux"
+        };
+
+        let all_available = ffmpeg_dep.available && ytdlp_dep.available;
+        let install_command =
+            build_dependency_install_command(platform, !ffmpeg_dep.available, !ytdlp_dep.available);
+
+        RuntimeDependenciesStatus {
+            platform: platform.to_string(),
+            ffmpeg: ffmpeg_dep,
+            ytdlp: ytdlp_dep,
+            all_available,
+            install_command,
+        }
+    })
+    .await
+    .map_err(|err| format!("Erreur lors du diagnostic des dépendances : {err}"))
 }
 
 #[tauri::command]
@@ -721,6 +802,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             health_check,
             check_ffmpeg_status,
+            check_runtime_dependencies,
             scan_audio_paths,
             read_track_tags,
             lookup_track_metadata,
@@ -748,7 +830,28 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_network_or_rate_limit_error;
+    use super::{build_dependency_install_command, is_network_or_rate_limit_error};
+
+    #[test]
+    fn builds_os_specific_dependency_install_commands() {
+        assert_eq!(
+            build_dependency_install_command("macos", true, true).as_deref(),
+            Some("brew install ffmpeg yt-dlp")
+        );
+        assert_eq!(
+            build_dependency_install_command("macos", true, false).as_deref(),
+            Some("brew install ffmpeg")
+        );
+        assert_eq!(
+            build_dependency_install_command("windows", true, true).as_deref(),
+            Some("winget install Gyan.FFmpeg yt-dlp.yt-dlp")
+        );
+        assert_eq!(
+            build_dependency_install_command("windows", false, true).as_deref(),
+            Some("winget install yt-dlp.yt-dlp")
+        );
+        assert_eq!(build_dependency_install_command("macos", false, false), None);
+    }
 
     #[test]
     fn classifies_network_and_rate_limit_errors_accurately() {

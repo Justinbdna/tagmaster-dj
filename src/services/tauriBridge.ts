@@ -20,6 +20,7 @@ import type {
   MetadataLookupResult,
   PipelineProgressEvent,
   QuickSearchSource,
+  RuntimeDependenciesStatus,
   ScanResult,
   SessionCache,
   SessionCacheSummary,
@@ -44,6 +45,10 @@ export async function checkBackendHealth(): Promise<HealthStatus> {
 
 export async function checkFfmpegStatus(): Promise<FfmpegStatus> {
   return invoke<FfmpegStatus>("check_ffmpeg_status");
+}
+
+export async function checkRuntimeDependencies(): Promise<RuntimeDependenciesStatus> {
+  return invoke<RuntimeDependenciesStatus>("check_runtime_dependencies");
 }
 
 export async function scanAudioPaths(paths: string[]): Promise<ScanResult> {

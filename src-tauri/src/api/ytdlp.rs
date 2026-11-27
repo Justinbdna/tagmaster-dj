@@ -19,7 +19,7 @@ use serde::Deserialize;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
-use crate::models::{MetadataSource, TrackCandidate};
+use crate::models::{BinaryDependencyStatus, MetadataSource, TrackCandidate};
 use crate::tagger::rules::{
     RawMetadataInput, clean_track_label, detect_protected_keyword, normalize_apostrophes,
     normalize_for_match, normalize_track_metadata, split_artist_title,
@@ -139,10 +139,77 @@ pub fn resolve_ytdlp_binary_from(
     None
 }
 
-/// Localise `yt-dlp` dans le `PATH` système ou dans les emplacements Homebrew/macOS usuels.
+/// Localise `yt-dlp` dans le `PATH` système ou dans les emplacements Homebrew (macOS)
+/// et Winget/Chocolatey/Scoop (Windows).
 pub fn resolve_ytdlp_binary() -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH");
-    resolve_ytdlp_binary_from(path_var.as_deref(), FALLBACK_YTDLP_PATHS)
+    if let Some(found) = resolve_ytdlp_binary_from(path_var.as_deref(), FALLBACK_YTDLP_PATHS) {
+        return Some(found);
+    }
+
+    #[cfg(windows)]
+    {
+        let mut win_candidates: Vec<PathBuf> = Vec::new();
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            win_candidates.push(
+                PathBuf::from(&local_app_data)
+                    .join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join("yt-dlp.exe"),
+            );
+        }
+        if let Ok(program_data) = std::env::var("ProgramData") {
+            win_candidates.push(
+                PathBuf::from(&program_data)
+                    .join("chocolatey")
+                    .join("bin")
+                    .join("yt-dlp.exe"),
+            );
+        }
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            win_candidates.push(
+                PathBuf::from(&user_profile)
+                    .join("scoop")
+                    .join("shims")
+                    .join("yt-dlp.exe"),
+            );
+        }
+        for candidate in win_candidates {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
+}
+
+/// Retourne l'état de disponibilité de `yt-dlp` pour le diagnostic au démarrage.
+pub fn check_ytdlp_status() -> BinaryDependencyStatus {
+    let Some(bin) = resolve_ytdlp_binary() else {
+        return BinaryDependencyStatus {
+            name: "yt-dlp".to_string(),
+            available: false,
+            version: None,
+            binary_path: None,
+        };
+    };
+
+    let version = std::process::Command::new(&bin)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .and_then(|stdout| stdout.lines().next().map(str::trim).map(str::to_string));
+
+    BinaryDependencyStatus {
+        name: "yt-dlp".to_string(),
+        available: true,
+        version,
+        binary_path: Some(bin.to_string_lossy().into_owned()),
+    }
 }
 
 fn clean_person_field(raw: &str) -> String {

@@ -324,3 +324,25 @@ pub struct FfmpegStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_path: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BinaryDependencyStatus {
+    pub name: String,
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDependenciesStatus {
+    pub platform: String,
+    pub ffmpeg: BinaryDependencyStatus,
+    pub ytdlp: BinaryDependencyStatus,
+    pub all_available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_command: Option<String>,
+}

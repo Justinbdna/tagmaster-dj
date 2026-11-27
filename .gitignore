@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+.venv/
+venv/
 
 # Runtime local state & cache
 cache.json

@@ -15,3 +15,22 @@ export function formatFileSize(bytes: number): string {
         });
   return `${formatted} ${units[exponent]}`;
 }
+
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const total = Math.round(seconds);
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) {
+    return `${hrs}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+export function formatDuplicateBadgeLabel(count: number): string {
+  if (count <= 2) return "Doublon";
+  if (count === 3) return "Triplé";
+  if (count === 4) return "Quadruplé";
+  return `×${count} copies`;
+}

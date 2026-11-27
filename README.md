@@ -1,27 +1,48 @@
 # Tagmaster DJ
 
-Application desktop **100 % open-source (Licence MIT)**, locale (*local-first*), conçue pour nettoyer, standardiser, tagger automatiquement (métadonnées, pochettes HD, paroles), convertir et exporter vos bibliothèques musicales locales avec une compatibilité optimale sur **Windows / macOS, iPod, PSP 3000 (CFW)** et serveurs homelab (**Jellyfin / Navidrome**).
+Application desktop **100 % open-source (Licence MIT)**, locale (*local-first*), conçue pour nettoyer, standardiser, tagger automatiquement (métadonnées, pochettes HD, paroles synchronisées), dédoublonner, convertir et exporter vos bibliothèques musicales locales avec une compatibilité optimale sur **macOS / Windows, iPod, PSP** et serveurs homelab (**Jellyfin / Navidrome**).
+
+---
+
+## Fonctionnalités (`v0.2.0`)
+
+- **Interface Liquid Glass native (Clair & Sombre)** : translucidité macOS native (`Translucide` / `Teinté`), modes focus pleine largeur, pastilles coulissantes et contrastes WCAG AA+.
+- **Cascade multi-sources intelligente (`Auto`)** :
+  - **Apple Music** (`US → GB → FR` + lookup catalogue artiste avec cache mémoire `artistId`)
+  - **Deezer** (API publique sans clé, pochettes `1000×1000`)
+  - **MusicBrainz + Cover Art Archive** (API publique, rate-limit 1 req/s)
+  - **Discogs** (optionnel via `DISCOGS_TOKEN` dans `.env` pour vinyles & maxis club)
+  - **YouTube & SoundCloud (`yt-dlp`)** : routage prioritaire automatique sur les versions protégées (`Live`, `Remix`, `Mashup`, `Sped Up`, `Slowed`, `Reverb`, `Nightcore`, `Chopped`, `Acoustic`, `Instrumental`) et recherche séparée à la volée.
+- **File de révision & éditeur libre** :
+  - Édition de n'importe quelle piste (même `Identifié` ou `Exporté`), lecteur audio local intégré et **Recherche rapide** avec sélecteur unifié à 7 sources (`Auto`, `Apple Music`, `Deezer`, `YouTube`, `SoundCloud`, `MusicBrainz`, `Discogs`).
+  - **Sélecteur de 16 pochettes HD en ligne** + import local + **URL d'image directe** (JPG, PNG, WebP).
+- **Paroles synchronisées temps réel** : récupération automatique via **LRCLIB** (sans clé) et fallback **Genius** (optionnel via `GENIUS_API_KEY` dans `.env`, ignoré sur les pistes `Instrumental`) avec écriture ID3v2 **`SYLT` + `USLT` + fichier compagnon `.lrc`**.
+- **Persistance & résilience réseau** : sauvegarde atomique automatique dans `cache.json`, reprise de session au redémarrage et pop-up à 3 choix en cas de coupure réseau / rate-limit (**Réessayer**, **Exporter les pistes prêtes**, **Quitter (sauvegardé)**).
+- **Détection de doublons & Comparateur audio A/B** : repérage automatique des copies (`__2`, `_1`, `(1)` et `Artiste + Titre` normalisés), comparaison côte à côte avec arrêt mutuel des lecteurs audio et arbitrage en 1 clic (**Garder A**, **Garder B**, **Garder les deux**, **Supprimer les deux**).
+- **Moteur `FFmpeg` & profils d'export matériels** (strictement non destructifs vers `Documents/Tagmaster_DJ_Export`) :
+  - **`Standard`** : audio `Original` (ou `MP3 320k`), pochette HD max `1000×1000`, `SYLT` + `USLT` + `.lrc`, UTF-8.
+  - **`iPod`** : Passthrough MP3/M4A (conversion MP3 320k si FLAC/WAV), pochette JPEG baseline max `600×600`, Sanitizer FAT32, ID3v2.3.
+  - **`PSP`** : conversion forcée MP3 CBR `320 kbps` (`44,1 kHz`, stéréo), pochette JPEG baseline max `400×400`, Sanitizer ASCII strict (Memory Stick Pro Duo / XMB), ID3v2.3 sans `.lrc`.
 
 ---
 
 ## Stack Technique
 
-- **Framework Desktop :** [Tauri 2.0](https://v2.tauri.app/) (binaire natif léger `.exe` / `.dmg`)
-- **Frontend :** React 19 + TypeScript + Vite + Tailwind CSS (UI Glassmorphism inspirée d'iOS 26/27)
-- **Backend :** Rust (appels API, règles métier de tagging, export sécurisé non destructif, persistance `cache.json`)
-- **Outils externes pilotés :** `FFmpeg` (conversion MP3 320 kbps & compression pochettes) et `yt-dlp` (remixes, lives, versions SoundCloud/YouTube)
+- **Framework Desktop :** [Tauri 2.0](https://v2.tauri.app/) (binaire natif `.dmg` / `.exe`)
+- **Frontend :** React 19 + TypeScript + Vite + Tailwind CSS v4
+- **Backend :** Rust (`lofty`, `reqwest`, `tokio`, `walkdir`, `regex`, `serde`)
+- **Outils externes pilotés :** `FFmpeg` (transcodage MP3 320k & pochettes JPEG baseline) et `yt-dlp` (métadonnées YouTube & SoundCloud)
 
-Pour le cahier des charges complet, consultez [`SPECIFICATIONS.md`](./SPECIFICATIONS.md).
+Consultez [`CHANGELOG.md`](./CHANGELOG.md) pour l'historique des versions et [`SPECIFICATIONS.md`](./SPECIFICATIONS.md) pour le cahier des charges.
 
 ---
 
-## Prérequis de Développement (Windows 11)
+## Prérequis de Développement
 
 - **Node.js** (v20+) & **npm**
 - **Rust** (`rustc` + `cargo` via [rustup](https://rustup.rs/))
-- **Microsoft C++ Build Tools** (Visual Studio Build Tools avec *Desktop development with C++* + Windows 10/11 SDK)
-- **WebView2 Runtime** (préinstallé sur Windows 11)
-- **FFmpeg** & **yt-dlp** (requis dès le Sprint 2 pour la conversion, les profils iPod/PSP et l'extraction YouTube/SoundCloud)
+- **FFmpeg** & **yt-dlp** dans le `PATH` (ex. `brew install ffmpeg yt-dlp` sur macOS)
+- **Windows 11 :** Microsoft C++ Build Tools (*Desktop development with C++*) + WebView2 Runtime
 
 ---
 
@@ -31,7 +52,7 @@ Pour le cahier des charges complet, consultez [`SPECIFICATIONS.md`](./SPECIFICAT
 # 1. Installer les dépendances frontend
 npm install
 
-# 2. Configurer les clés API optionnelles (Genius, Discogs)
+# 2. (Optionnel) Configurer les clés API locales (Genius, Discogs)
 cp .env.example .env
 
 # 3. Lancer l'application desktop en mode développement
@@ -41,7 +62,7 @@ npm run tauri dev
 npm run tauri build
 ```
 
-> **Sécurité :** Le fichier `.env` et le fichier d'état local `cache.json` sont strictement exclus de Git. Les fichiers audio originaux ne sont **jamais** écrasés : tous les exports sont écrits dans `Documents/Tagmaster_DJ_Export`.
+> **Sécurité :** `.env` et `cache.json` sont strictement exclus de Git. Les fichiers audio originaux ne sont **jamais** modifiés : tous les exports sont écrits dans `Documents/Tagmaster_DJ_Export`.
 
 ---
 
@@ -49,33 +70,28 @@ npm run tauri build
 
 ```text
 tagmaster-dj/
+├── CHANGELOG.md             # Historique des releases
 ├── SPECIFICATIONS.md        # Cahier des charges complet
-├── .env.example             # Modèle des clés API optionnelles
-├── src/                     # Frontend React + TypeScript + Tailwind CSS
-│   ├── components/          # Composants UI Glassmorphism modulaires
-│   ├── hooks/               # Hooks React métier et état applicatif
-│   ├── pages/               # Vues principales (Workspace, File de révision, Paramètres)
+├── .env.example             # Modèle des clés API optionnelles (Genius, Discogs)
+├── src/                     # Frontend React 19 + TypeScript + Tailwind CSS v4
+│   ├── components/          # UI Liquid Glass (Bibliothèque, Révision, Doublons A/B, Modales, Paramètres)
+│   ├── hooks/               # État applicatif, persistance session, thème
+│   ├── pages/               # WorkspacePage
 │   ├── services/            # Pont IPC typé vers le backend Tauri
-│   ├── styles/              # Styles globaux & tokens Tailwind CSS
+│   ├── styles/              # Tokens Liquid Glass & contraste WCAG AA+ Clair/Sombre
 │   └── types/               # Interfaces TypeScript partagées
 └── src-tauri/               # Backend Rust Tauri 2.0
     └── src/
-        ├── api/             # Cascade de sources (Apple Music US, yt-dlp, Genius, Discogs)
-        ├── tagger/          # Nettoyage Table Rase, règles featurings/disques & sanitizer
+        ├── api/             # Apple Music, Deezer, MusicBrainz, Discogs, yt-dlp, LRCLIB/Genius
+        ├── cache/           # Persistance atomique cache.json & reprise de session
+        ├── duplicates.rs    # Détection de doublons & classement par qualité
         ├── exporter/        # Export Plat/Dynamique, garde 256 car. Windows & profils
-        ├── cache/           # Persistance locale cache.json & reprise après coupure
-        ├── models.rs        # Structures de données sérialisées IPC
+        ├── ffmpeg/          # Transcodage MP3 320k & pochettes JPEG baseline (SOF0)
+        ├── scanner/         # Scan récursif audio & lecture propriétés techniques
+        ├── tagger/          # Table Rase, règles featurings/disques & sanitizer FAT32/ASCII
+        ├── models.rs        # Structures de données IPC
         └── lib.rs           # Point d'entrée Tauri & commandes exposées
 ```
-
----
-
-## Workflow Git
-
-- `main` : versions stables uniquement
-- `staging` : intégration et validation pré-production
-- `feat/<nom-feature>` : développement isolé par fonctionnalité
-- Commits conventionnels : `feat:`, `fix:`, `docs:`, `style:`, `refactor:`
 
 ---
 

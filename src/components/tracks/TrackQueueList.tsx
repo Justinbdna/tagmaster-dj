@@ -1,27 +1,45 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Copy,
   FileAudio2,
   FolderOpen,
   Loader2,
   Music,
+  Pencil,
   Search,
   ShieldAlert,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
-import type { AudioTrackItem, TrackStatus } from "../../types/track";
-import { formatFileSize } from "../../utils/format";
+import { toLocalAssetUrl } from "../../services/tauriBridge";
+import type {
+  AudioTrackItem,
+  DuplicateGroup,
+  TrackStatus,
+} from "../../types/track";
+import {
+  formatDuplicateBadgeLabel,
+  formatFileSize,
+} from "../../utils/format";
 
 interface TrackQueueListProps {
   tracks: AudioTrackItem[];
+  duplicateGroups: DuplicateGroup[];
+  duplicateGroupByTrackId: ReadonlyMap<string, DuplicateGroup>;
+  onOpenDuplicates: (groupKey?: string) => void;
   onRemoveTrack: (id: string) => void;
   onLookupTrack: (id: string) => void;
+  onOpenReviewTrack: (id: string) => void;
   onClearAll: () => void;
   onPickFolder: () => void;
   onPickFiles: () => void;
   isScanning: boolean;
   isRunningBatch: boolean;
+  isResumedSession?: boolean;
 }
 
 const STATUS_BADGE: Record<
@@ -53,17 +71,48 @@ const STATUS_BADGE: Record<
 
 export function TrackQueueList({
   tracks,
+  duplicateGroups,
+  duplicateGroupByTrackId,
+  onOpenDuplicates,
   onRemoveTrack,
   onLookupTrack,
+  onOpenReviewTrack,
   onClearAll,
   onPickFolder,
   onPickFiles,
   isScanning,
   isRunningBatch,
+  isResumedSession = false,
 }: TrackQueueListProps) {
   const isBusy = isScanning || isRunningBatch;
   const [query, setQuery] = useState("");
   const [selectedExt, setSelectedExt] = useState<string>("ALL");
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
+  const formatMenuRef = useRef<HTMLDivElement | null>(null);
+  const [brokenArtworkUrls, setBrokenArtworkUrls] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    if (!formatMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        formatMenuRef.current &&
+        !formatMenuRef.current.contains(event.target as Node)
+      ) {
+        setFormatMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFormatMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [formatMenuOpen]);
 
   const formatCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -72,6 +121,24 @@ export function TrackQueueList({
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [tracks]);
+
+  useEffect(() => {
+    if (
+      selectedExt !== "ALL" &&
+      !formatCounts.some(([ext]) => ext === selectedExt)
+    ) {
+      setSelectedExt("ALL");
+    }
+  }, [formatCounts, selectedExt]);
+
+  const activeFormatCount =
+    selectedExt === "ALL"
+      ? tracks.length
+      : (formatCounts.find(([ext]) => ext === selectedExt)?.[1] ?? 0);
+  const activeFormatLabel =
+    selectedExt === "ALL"
+      ? `Tous (${tracks.length})`
+      : `.${selectedExt} (${activeFormatCount})`;
 
   const filteredTracks = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -113,37 +180,96 @@ export function TrackQueueList({
           )}
         </div>
 
-        {/* Format filter chips */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* Compact Format Filter Dropdown */}
+        <div ref={formatMenuRef} className="relative">
           <button
             type="button"
-            onClick={() => setSelectedExt("ALL")}
-            className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              selectedExt === "ALL"
-                ? "bg-sky-500/20 text-sky-400"
-                : "bg-[var(--content-card-bg)] text-secondary hover:text-primary"
-            }`}
+            onClick={() => setFormatMenuOpen((prev) => !prev)}
+            aria-haspopup="listbox"
+            aria-expanded={formatMenuOpen}
+            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold text-primary"
           >
-            Tous ({tracks.length})
-          </button>
-          {formatCounts.map(([ext, count]) => (
-            <button
-              key={ext}
-              type="button"
-              onClick={() => setSelectedExt(ext)}
-              className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                selectedExt === ext
-                  ? "bg-sky-500/20 text-sky-400"
-                  : "bg-[var(--content-card-bg)] text-secondary hover:text-primary"
+            <span className="tabular-nums">{activeFormatLabel}</span>
+            <ChevronDown
+              className={`h-3.5 w-3.5 text-secondary transition-transform duration-150 ${
+                formatMenuOpen ? "rotate-180" : ""
               }`}
+            />
+          </button>
+
+          {formatMenuOpen && (
+            <div
+              role="listbox"
+              aria-label="Filtrer par format audio"
+              className="modal-surface absolute left-0 top-full z-30 mt-1.5 min-w-[164px] rounded-[16px] p-1.5"
             >
-              .{ext} ({count})
-            </button>
-          ))}
+              <button
+                type="button"
+                role="option"
+                aria-selected={selectedExt === "ALL"}
+                onClick={() => {
+                  setSelectedExt("ALL");
+                  setFormatMenuOpen(false);
+                }}
+                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-[10px] px-3 py-1.5 text-left text-[12px] font-medium transition-colors ${
+                  selectedExt === "ALL"
+                    ? "bg-sky-500/15 text-primary"
+                    : "text-secondary hover:bg-[var(--content-card-hover)] hover:text-primary"
+                }`}
+              >
+                <span className="tabular-nums">Tous ({tracks.length})</span>
+                {selectedExt === "ALL" && (
+                  <Check className="text-semantic-info h-3.5 w-3.5 shrink-0" />
+                )}
+              </button>
+
+              {formatCounts.map(([ext, count]) => {
+                const isSelected = selectedExt === ext;
+                return (
+                  <button
+                    key={ext}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setSelectedExt(ext);
+                      setFormatMenuOpen(false);
+                    }}
+                    className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-[10px] px-3 py-1.5 text-left text-[12px] font-medium transition-colors ${
+                      isSelected
+                        ? "bg-sky-500/15 text-primary"
+                        : "text-secondary hover:bg-[var(--content-card-hover)] hover:text-primary"
+                    }`}
+                  >
+                    <span className="tabular-nums">
+                      .{ext} ({count})
+                    </span>
+                    {isSelected && (
+                      <Check className="text-semantic-info h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Quick queue actions */}
         <div className="flex items-center gap-1.5">
+          {duplicateGroups.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onOpenDuplicates(duplicateGroups[0]?.groupKey)}
+              disabled={isBusy}
+              title="Ouvrir le Comparateur audio A/B pour arbitrer les doublons détectés"
+              className="badge-duplicate flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-semibold transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              <span>
+                Doublons ({duplicateGroups.length})
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onPickFolder}
@@ -169,7 +295,7 @@ export function TrackQueueList({
             onClick={onClearAll}
             disabled={isBusy}
             title="Vider la file d'attente"
-            className="flex cursor-pointer items-center gap-1 rounded-full border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-[11.5px] font-medium text-rose-400 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-semantic-danger flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-[11.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
             <span>Vider</span>
@@ -178,7 +304,7 @@ export function TrackQueueList({
       </div>
 
       {/* Column Headers */}
-      <div className="grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_74px] items-center gap-3 border-b border-[var(--content-divider)] px-5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
+      <div className="grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_96px] items-center gap-3 border-b border-[var(--content-divider)] px-5 py-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">
         <span className="text-center">#</span>
         <span>Fichier audio &amp; aperçu métadonnées</span>
         <span>Format</span>
@@ -200,28 +326,51 @@ export function TrackQueueList({
                 track.status === "completed" && track.exportedPath
                   ? { label: "Exporté", className: STATUS_BADGE.completed.className }
                   : STATUS_BADGE[track.status];
+              const isReviewable =
+                track.status === "needs_review" || track.status === "failed";
               const meta = track.metadata;
+              const dupGroup = duplicateGroupByTrackId.get(track.id);
+              const showGreenCheck =
+                track.status === "completed" &&
+                (Boolean(track.exportedPath) || isResumedSession);
               return (
                 <li
                   key={track.id}
-                  className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_74px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
+                  className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_96px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
                 >
                   <span className="text-center text-[11.5px] font-medium tabular-nums text-muted">
                     {idx + 1}
                   </span>
 
                   <div className="flex min-w-0 items-center gap-3">
-                    {meta?.artworkUrl ? (
-                      <img
-                        src={meta.artworkUrl}
-                        alt={meta.album}
-                        className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
-                        <Music className="h-4 w-4" strokeWidth={1.85} />
-                      </div>
-                    )}
+                    {(() => {
+                      const artworkSrc = track.localArtworkPath
+                        ? toLocalAssetUrl(track.localArtworkPath)
+                        : meta?.artworkUrl;
+                      const canShowImage =
+                        Boolean(artworkSrc) &&
+                        !brokenArtworkUrls.has(artworkSrc as string);
+                      return canShowImage ? (
+                        <img
+                          src={artworkSrc}
+                          alt={meta?.album ?? track.fileName}
+                          onError={() => {
+                            if (!artworkSrc) return;
+                            setBrokenArtworkUrls((prev) => {
+                              if (prev.has(artworkSrc)) return prev;
+                              const next = new Set(prev);
+                              next.add(artworkSrc);
+                              return next;
+                            });
+                          }}
+                          className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
+                          <Music className="h-4 w-4" strokeWidth={1.85} />
+                        </div>
+                      );
+                    })()}
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -240,6 +389,22 @@ export function TrackQueueList({
                             Version protégée
                           </span>
                         )}
+                        {dupGroup && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenDuplicates(dupGroup.groupKey)}
+                            disabled={isBusy}
+                            title={`Ouvrir le Comparateur A/B (${dupGroup.trackIds.length} fichiers)`}
+                            className="badge-duplicate inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Copy className="h-2.5 w-2.5" />
+                            <span>
+                              {formatDuplicateBadgeLabel(
+                                dupGroup.trackIds.length,
+                              )}
+                            </span>
+                          </button>
+                        )}
                       </div>
 
                       {meta ? (
@@ -254,7 +419,11 @@ export function TrackQueueList({
                         </p>
                       ) : track.reviewReason ? (
                         <p
-                          className="truncate text-[11px] text-amber-400/90"
+                          className={`truncate text-[11px] font-medium ${
+                            track.status === "failed"
+                              ? "text-semantic-danger"
+                              : "text-semantic-warning"
+                          }`}
                           title={track.reviewReason}
                         >
                           {track.reviewReason}
@@ -276,15 +445,44 @@ export function TrackQueueList({
                   </span>
 
                   <div className="flex justify-center">
-                    <span
-                      title={track.exportedPath ?? track.reviewReason}
-                      className={`rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
-                    >
-                      {badge.label}
-                    </span>
+                    {isReviewable ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenReviewTrack(track.id)}
+                        title="Ouvrir dans la File de révision"
+                        className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold transition-transform hover:scale-105 ${badge.className}`}
+                      >
+                        {badge.label}
+                      </button>
+                    ) : (
+                      <span
+                        title={track.exportedPath ?? track.reviewReason}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
+                      >
+                        {showGreenCheck && (
+                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                        )}
+                        <span>{badge.label}</span>
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpenReviewTrack(track.id)}
+                      disabled={isRunningBatch || track.status === "processing"}
+                      title="Éditer les métadonnées ou rechercher une autre version"
+                      aria-label={`Éditer ${track.fileName}`}
+                      className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        isReviewable
+                          ? "text-semantic-warning hover:bg-amber-500/15"
+                          : "text-secondary hover:bg-white/10 hover:text-primary"
+                      }`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => onLookupTrack(track.id)}

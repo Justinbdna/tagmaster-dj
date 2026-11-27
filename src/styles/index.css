@@ -6,38 +6,64 @@
       "SF Pro Text", "Segoe UI Variable", "Segoe UI", Roboto, Helvetica, Arial,
       sans-serif;
 
-    /* Dark Mode (Default — Neutral Carbon / Obsidian Liquid Glass, macOS Tahoe / iOS 26) */
-    --canvas-base: #0d0d0f;
-    --canvas-orb-1: rgba(255, 255, 255, 0.065);
-    --canvas-orb-2: rgba(196, 196, 204, 0.05);
-    --canvas-orb-3: rgba(138, 138, 146, 0.045);
-    --canvas-orb-4: rgba(224, 224, 230, 0.04);
+    /* Dark Mode (Default — Native macOS Liquid Glass / Obsidian Translucent) */
+    --canvas-base: rgba(10, 12, 16, 0.24);
+    --canvas-orb-1: rgba(255, 255, 255, 0.08);
+    --canvas-orb-2: rgba(196, 196, 204, 0.06);
+    --canvas-orb-3: rgba(138, 138, 146, 0.055);
+    --canvas-orb-4: rgba(224, 224, 230, 0.05);
 
-    /* Liquid Glass Navigation Layer (Elevated Carbon Chrome) */
-    --glass-bg: rgba(28, 28, 32, 0.64);
-    --glass-bg-hover: rgba(38, 38, 43, 0.74);
-    --glass-pill-bg: rgba(255, 255, 255, 0.075);
-    --glass-pill-hover: rgba(255, 255, 255, 0.13);
-    --glass-active-bg: rgba(255, 255, 255, 0.145);
-    --glass-border: rgba(255, 255, 255, 0.11);
-    --glass-border-strong: rgba(255, 255, 255, 0.2);
-    --glass-specular-top: rgba(255, 255, 255, 0.22);
-    --glass-specular-sheen: rgba(255, 255, 255, 0.075);
-    --glass-shadow: 0 24px 56px rgba(0, 0, 0, 0.56),
-      0 4px 16px rgba(0, 0, 0, 0.34);
+    /* Liquid Glass Navigation Layer (Sidebar / TopBar / Floating Dock) */
+    --glass-bg: rgba(18, 20, 26, 0.34);
+    --glass-bg-hover: rgba(28, 30, 38, 0.48);
+    --glass-pill-bg: rgba(255, 255, 255, 0.085);
+    --glass-pill-hover: rgba(255, 255, 255, 0.15);
+    --glass-active-bg: rgba(255, 255, 255, 0.16);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-border-strong: rgba(255, 255, 255, 0.24);
+    --glass-specular-top: rgba(255, 255, 255, 0.26);
+    --glass-specular-sheen: rgba(255, 255, 255, 0.09);
+    --glass-shadow: 0 24px 56px rgba(0, 0, 0, 0.45),
+      0 4px 16px rgba(0, 0, 0, 0.26);
 
-    /* Foundational Content Layer (Deep Obsidian Surface) */
-    --content-bg: rgba(20, 20, 23, 0.78);
-    --content-card-bg: rgba(255, 255, 255, 0.04);
-    --content-card-hover: rgba(255, 255, 255, 0.075);
-    --content-border: rgba(255, 255, 255, 0.085);
-    --content-divider: rgba(255, 255, 255, 0.07);
-    --content-shadow: 0 16px 38px rgba(0, 0, 0, 0.36);
+    /* Foundational Content Layer (Deep Translucent Surface) */
+    --content-bg: rgba(14, 15, 19, 0.62);
+    --content-card-bg: rgba(255, 255, 255, 0.045);
+    --content-card-hover: rgba(255, 255, 255, 0.08);
+    --content-border: rgba(255, 255, 255, 0.095);
+    --content-divider: rgba(255, 255, 255, 0.08);
+    --content-shadow: 0 16px 38px rgba(0, 0, 0, 0.3);
+
+    /* High-Contrast Modal & Comparator Surfaces (Dark) */
+    --modal-bg: rgba(20, 20, 24, 0.95);
+    --modal-border: rgba(255, 255, 255, 0.14);
+    --modal-card-bg: rgba(255, 255, 255, 0.055);
+    --modal-card-border: rgba(255, 255, 255, 0.1);
+    --modal-shadow: 0 28px 68px rgba(0, 0, 0, 0.62),
+      0 4px 18px rgba(0, 0, 0, 0.36);
+    --comparator-card-bg: rgba(20, 22, 28, 0.86);
+    --comparator-card-border: rgba(255, 255, 255, 0.12);
 
     /* Typography */
     --text-primary: rgba(255, 255, 255, 0.96);
-    --text-secondary: rgba(235, 235, 240, 0.74);
-    --text-muted: rgba(200, 200, 208, 0.54);
+    --text-secondary: rgba(235, 235, 240, 0.76);
+    --text-muted: rgba(200, 200, 208, 0.58);
+
+    /* Semantic High-Contrast Text & Buttons (Dark) */
+    --semantic-success: #6ee7b7;
+    --semantic-warning: #fcd34d;
+    --semantic-danger: #fda4af;
+    --semantic-info: #7dd3fc;
+    --semantic-accent: #d8b4fe;
+    --btn-success-bg: rgba(16, 185, 129, 0.18);
+    --btn-success-hover: rgba(16, 185, 129, 0.28);
+    --btn-success-border: rgba(52, 211, 153, 0.38);
+    --btn-danger-bg: rgba(244, 63, 94, 0.16);
+    --btn-danger-hover: rgba(244, 63, 94, 0.26);
+    --btn-danger-border: rgba(251, 113, 133, 0.36);
+    --btn-accent-bg: rgba(139, 92, 246, 0.22);
+    --btn-accent-hover: rgba(139, 92, 246, 0.34);
+    --btn-accent-border: rgba(196, 181, 253, 0.42);
 
     /* Accent & Controls */
     --primary-btn-bg: linear-gradient(
@@ -64,44 +90,88 @@
     --badge-info-bg: rgba(56, 189, 248, 0.16);
     --badge-info-border: rgba(56, 189, 248, 0.34);
     --badge-info-text: #7dd3fc;
+    --badge-youtube-bg: rgba(244, 63, 94, 0.16);
+    --badge-youtube-border: rgba(251, 113, 133, 0.36);
+    --badge-youtube-text: #fda4af;
+    --badge-soundcloud-bg: rgba(249, 115, 22, 0.16);
+    --badge-soundcloud-border: rgba(251, 146, 60, 0.36);
+    --badge-soundcloud-text: #fdba74;
+    --badge-duplicate-bg: rgba(168, 85, 247, 0.18);
+    --badge-duplicate-border: rgba(192, 132, 252, 0.38);
+    --badge-duplicate-text: #d8b4fe;
+    --badge-deezer-bg: rgba(168, 85, 247, 0.18);
+    --badge-deezer-border: rgba(192, 132, 252, 0.4);
+    --badge-deezer-text: #e9d5ff;
+    --badge-musicbrainz-bg: rgba(234, 179, 8, 0.18);
+    --badge-musicbrainz-border: rgba(250, 204, 21, 0.38);
+    --badge-musicbrainz-text: #fde047;
+    --badge-discogs-bg: rgba(20, 184, 166, 0.18);
+    --badge-discogs-border: rgba(45, 212, 191, 0.38);
+    --badge-discogs-text: #5eead4;
 
     color-scheme: dark;
     font-family: var(--font-sans);
   }
 
   html.light {
-    /* Light Mode — Crisp macOS Tahoe / iOS 26 Refractive Mist */
-    --canvas-base: #eaf0f8;
-    --canvas-orb-1: rgba(56, 189, 248, 0.26);
-    --canvas-orb-2: rgba(129, 140, 248, 0.22);
-    --canvas-orb-3: rgba(192, 132, 252, 0.16);
-    --canvas-orb-4: rgba(45, 212, 191, 0.16);
+    /* Light Mode (Translucide / Clear) — Véritable réfraction verre clair macOS */
+    --canvas-base: rgba(244, 247, 252, 0.22);
+    --canvas-orb-1: rgba(56, 189, 248, 0.14);
+    --canvas-orb-2: rgba(129, 140, 248, 0.12);
+    --canvas-orb-3: rgba(192, 132, 252, 0.08);
+    --canvas-orb-4: rgba(45, 212, 191, 0.08);
 
-    /* Liquid Glass Navigation Layer (Light) */
-    --glass-bg: rgba(255, 255, 255, 0.62);
-    --glass-bg-hover: rgba(255, 255, 255, 0.78);
-    --glass-pill-bg: rgba(255, 255, 255, 0.54);
-    --glass-pill-hover: rgba(255, 255, 255, 0.8);
-    --glass-active-bg: rgba(255, 255, 255, 0.92);
-    --glass-border: rgba(255, 255, 255, 0.78);
+    /* Liquid Glass Navigation Layer (Light Translucide) */
+    --glass-bg: rgba(255, 255, 255, 0.42);
+    --glass-bg-hover: rgba(255, 255, 255, 0.56);
+    --glass-pill-bg: rgba(255, 255, 255, 0.48);
+    --glass-pill-hover: rgba(255, 255, 255, 0.72);
+    --glass-active-bg: rgba(255, 255, 255, 0.78);
+    --glass-border: rgba(255, 255, 255, 0.74);
     --glass-border-strong: rgba(15, 23, 42, 0.14);
-    --glass-specular-top: rgba(255, 255, 255, 0.96);
-    --glass-specular-sheen: rgba(255, 255, 255, 0.55);
+    --glass-specular-top: rgba(255, 255, 255, 0.95);
+    --glass-specular-sheen: rgba(255, 255, 255, 0.42);
     --glass-shadow: 0 20px 46px rgba(15, 23, 42, 0.09),
       0 2px 10px rgba(15, 23, 42, 0.05);
 
-    /* Foundational Content Layer (Light) */
-    --content-bg: rgba(255, 255, 255, 0.78);
-    --content-card-bg: rgba(15, 23, 42, 0.025);
-    --content-card-hover: rgba(15, 23, 42, 0.05);
-    --content-border: rgba(15, 23, 42, 0.09);
-    --content-divider: rgba(15, 23, 42, 0.07);
-    --content-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+    /* Foundational Content Layer (Light Translucide) */
+    --content-bg: rgba(255, 255, 255, 0.56);
+    --content-card-bg: rgba(255, 255, 255, 0.34);
+    --content-card-hover: rgba(255, 255, 255, 0.54);
+    --content-border: rgba(15, 23, 42, 0.12);
+    --content-divider: rgba(15, 23, 42, 0.09);
+    --content-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
 
-    /* Typography */
-    --text-primary: rgba(15, 23, 42, 0.94);
-    --text-secondary: rgba(30, 41, 59, 0.68);
-    --text-muted: rgba(51, 65, 85, 0.5);
+    /* High-Contrast Modal & Comparator Surfaces (Light) */
+    --modal-bg: rgba(255, 255, 255, 0.96);
+    --modal-border: rgba(15, 23, 42, 0.14);
+    --modal-card-bg: rgba(241, 245, 249, 0.92);
+    --modal-card-border: rgba(15, 23, 42, 0.11);
+    --modal-shadow: 0 24px 58px rgba(15, 23, 42, 0.18),
+      0 4px 16px rgba(15, 23, 42, 0.08);
+    --comparator-card-bg: rgba(255, 255, 255, 0.96);
+    --comparator-card-border: rgba(15, 23, 42, 0.13);
+
+    /* Typography (WCAG AA+ on light surfaces) */
+    --text-primary: #111827;
+    --text-secondary: #374151;
+    --text-muted: #525f72;
+
+    /* Semantic High-Contrast Text & Buttons (Light) */
+    --semantic-success: #047857;
+    --semantic-warning: #92400e;
+    --semantic-danger: #b91c1c;
+    --semantic-info: #1d4ed8;
+    --semantic-accent: #6d28d9;
+    --btn-success-bg: rgba(4, 120, 87, 0.1);
+    --btn-success-hover: rgba(4, 120, 87, 0.18);
+    --btn-success-border: rgba(4, 120, 87, 0.34);
+    --btn-danger-bg: rgba(185, 28, 28, 0.09);
+    --btn-danger-hover: rgba(185, 28, 28, 0.16);
+    --btn-danger-border: rgba(185, 28, 28, 0.32);
+    --btn-accent-bg: rgba(109, 40, 217, 0.1);
+    --btn-accent-hover: rgba(109, 40, 217, 0.18);
+    --btn-accent-border: rgba(109, 40, 217, 0.34);
 
     --primary-btn-bg: linear-gradient(
       135deg,
@@ -114,35 +184,58 @@
     --scrollbar-thumb: rgba(15, 23, 42, 0.2);
     --scrollbar-thumb-hover: rgba(15, 23, 42, 0.36);
 
-    /* Semantic Status Badges (Light) */
-    --badge-success-bg: rgba(16, 185, 129, 0.14);
-    --badge-success-border: rgba(5, 150, 105, 0.3);
+    /* Semantic Status Badges (Light — WCAG AA+) */
+    --badge-success-bg: rgba(4, 120, 87, 0.12);
+    --badge-success-border: rgba(4, 120, 87, 0.34);
     --badge-success-text: #047857;
-    --badge-warning-bg: rgba(245, 158, 11, 0.16);
-    --badge-warning-border: rgba(217, 119, 6, 0.34);
-    --badge-warning-text: #b45309;
-    --badge-danger-bg: rgba(244, 63, 94, 0.14);
-    --badge-danger-border: rgba(225, 29, 72, 0.32);
-    --badge-danger-text: #be123c;
-    --badge-info-bg: rgba(14, 165, 233, 0.14);
-    --badge-info-border: rgba(2, 132, 199, 0.3);
-    --badge-info-text: #0369a1;
+    --badge-warning-bg: rgba(180, 83, 9, 0.12);
+    --badge-warning-border: rgba(146, 64, 14, 0.34);
+    --badge-warning-text: #92400e;
+    --badge-danger-bg: rgba(185, 28, 28, 0.11);
+    --badge-danger-border: rgba(185, 28, 28, 0.34);
+    --badge-danger-text: #b91c1c;
+    --badge-info-bg: rgba(29, 78, 216, 0.1);
+    --badge-info-border: rgba(29, 78, 216, 0.3);
+    --badge-info-text: #1d4ed8;
+    --badge-youtube-bg: rgba(185, 28, 28, 0.11);
+    --badge-youtube-border: rgba(185, 28, 28, 0.32);
+    --badge-youtube-text: #b91c1c;
+    --badge-soundcloud-bg: rgba(194, 65, 12, 0.12);
+    --badge-soundcloud-border: rgba(194, 65, 12, 0.34);
+    --badge-soundcloud-text: #9a3412;
+    --badge-duplicate-bg: rgba(109, 40, 217, 0.11);
+    --badge-duplicate-border: rgba(109, 40, 217, 0.32);
+    --badge-duplicate-text: #6d28d9;
+    --badge-deezer-bg: rgba(126, 34, 206, 0.11);
+    --badge-deezer-border: rgba(126, 34, 206, 0.34);
+    --badge-deezer-text: #6b21a8;
+    --badge-musicbrainz-bg: rgba(161, 98, 7, 0.12);
+    --badge-musicbrainz-border: rgba(161, 98, 7, 0.34);
+    --badge-musicbrainz-text: #854d0e;
+    --badge-discogs-bg: rgba(15, 118, 110, 0.12);
+    --badge-discogs-border: rgba(15, 118, 110, 0.34);
+    --badge-discogs-text: #115e59;
 
     color-scheme: light;
   }
 
   /* Tinted Glass Accessibility Option (inspired by macOS Tahoe Tinted Liquid Glass) */
   html.dark[data-glass-tint="tinted"] {
-    --glass-bg: rgba(24, 24, 28, 0.86);
-    --glass-pill-bg: rgba(255, 255, 255, 0.1);
-    --glass-border: rgba(255, 255, 255, 0.13);
-    --content-bg: rgba(17, 17, 20, 0.92);
+    --canvas-base: rgba(10, 11, 15, 0.64);
+    --glass-bg: rgba(20, 21, 26, 0.78);
+    --glass-pill-bg: rgba(255, 255, 255, 0.11);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --content-bg: rgba(15, 16, 20, 0.88);
   }
 
   html.light[data-glass-tint="tinted"] {
-    --glass-bg: rgba(255, 255, 255, 0.86);
-    --glass-pill-bg: rgba(255, 255, 255, 0.8);
+    --canvas-base: rgba(242, 246, 252, 0.9);
+    --glass-bg: rgba(255, 255, 255, 0.9);
+    --glass-pill-bg: rgba(255, 255, 255, 0.86);
+    --glass-active-bg: rgba(255, 255, 255, 0.96);
     --content-bg: rgba(255, 255, 255, 0.94);
+    --content-card-bg: rgba(15, 23, 42, 0.04);
+    --content-card-hover: rgba(15, 23, 42, 0.075);
   }
 
   * {
@@ -154,10 +247,11 @@
   #root {
     height: 100%;
     margin: 0;
+    background-color: transparent;
   }
 
   body {
-    background-color: var(--canvas-base);
+    background-color: transparent;
     color: var(--text-primary);
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
@@ -282,6 +376,12 @@
     var(--content-shadow);
 }
 
+html.light[data-glass-tint="clear"] .liquid-glass,
+html.light[data-glass-tint="clear"] .content-surface {
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
 /* Semantic Status Badges */
 .badge-success {
   background-color: var(--badge-success-bg);
@@ -305,6 +405,118 @@
   background-color: var(--badge-info-bg);
   border-color: var(--badge-info-border);
   color: var(--badge-info-text);
+}
+
+.badge-youtube {
+  background-color: var(--badge-youtube-bg);
+  border-color: var(--badge-youtube-border);
+  color: var(--badge-youtube-text);
+}
+
+.badge-soundcloud {
+  background-color: var(--badge-soundcloud-bg);
+  border-color: var(--badge-soundcloud-border);
+  color: var(--badge-soundcloud-text);
+}
+
+.badge-duplicate {
+  background-color: var(--badge-duplicate-bg);
+  border-color: var(--badge-duplicate-border);
+  color: var(--badge-duplicate-text);
+}
+
+.badge-deezer {
+  background-color: var(--badge-deezer-bg);
+  border-color: var(--badge-deezer-border);
+  color: var(--badge-deezer-text);
+}
+
+.badge-musicbrainz {
+  background-color: var(--badge-musicbrainz-bg);
+  border-color: var(--badge-musicbrainz-border);
+  color: var(--badge-musicbrainz-text);
+}
+
+.badge-discogs {
+  background-color: var(--badge-discogs-bg);
+  border-color: var(--badge-discogs-border);
+  color: var(--badge-discogs-text);
+}
+
+/* High-Contrast Modal & Comparator Cards */
+.modal-surface {
+  background: var(--modal-bg);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  border: 1px solid var(--modal-border);
+  box-shadow: var(--modal-shadow);
+}
+
+.modal-subcard {
+  background: var(--modal-card-bg);
+  border: 1px solid var(--modal-card-border);
+}
+
+.comparator-card {
+  background: var(--comparator-card-bg);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid var(--comparator-card-border);
+  box-shadow: var(--content-shadow);
+}
+
+/* WCAG AA+ Adaptive Semantic Text & Action Buttons */
+.text-semantic-success {
+  color: var(--semantic-success);
+}
+
+.text-semantic-warning {
+  color: var(--semantic-warning);
+}
+
+.text-semantic-danger {
+  color: var(--semantic-danger);
+}
+
+.text-semantic-info {
+  color: var(--semantic-info);
+}
+
+.text-semantic-accent {
+  color: var(--semantic-accent);
+}
+
+.btn-semantic-success {
+  background-color: var(--btn-success-bg);
+  border: 1px solid var(--btn-success-border);
+  color: var(--semantic-success);
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.btn-semantic-success:hover:not(:disabled) {
+  background-color: var(--btn-success-hover);
+}
+
+.btn-semantic-danger {
+  background-color: var(--btn-danger-bg);
+  border: 1px solid var(--btn-danger-border);
+  color: var(--semantic-danger);
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.btn-semantic-danger:hover:not(:disabled) {
+  background-color: var(--btn-danger-hover);
+}
+
+.btn-semantic-accent {
+  background-color: var(--btn-accent-bg);
+  border: 1px solid var(--btn-accent-border);
+  color: var(--semantic-accent);
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.btn-semantic-accent:hover:not(:disabled) {
+  background-color: var(--btn-accent-hover);
 }
 
 .text-primary {

@@ -51,6 +51,7 @@
 * **Compilations / BO :** Si détecté comme compilation, `Album Artist` = `Various Artists`, tout en conservant le vrai interprète dans `Artiste`.
 * **Albums Multi-Disques (Deluxe / Rééditions) :** Remplissage obligatoire du tag `Disc Number` (ex: `1/2`, `2/2`) pour éviter le mélange des pistes.
 * **Mots-clés intouchables :** Si le fichier source contient `Live`, `Acoustic`, `Sped Up`, `Chopped`, `Instrumental`, `Remix`, `Mashup` → ne jamais laisser Apple Music écraser avec la version studio ; basculer sur `yt-dlp` ou envoyer en file de révision manuelle.
+* **Nettoyage des suffixes de doublons :** Ignorer les suffixes techniques en fin de nom de fichier (`__2`, `_1`, `(1)`, `(2)`, ` - Copy`, ` copie`) lors de la construction de la requête API, tout en préservant les mentions musicales légitimes (`pt. 2`, `Part 2`, `Vol. 2`, `v2`).
 * **Sanitizer (Caractères spéciaux) :** Pour les profils rétro (iPod / PSP), nettoyer les emojis et caractères non supportés. Si le titre devient illisible ou ambigu, envoyer en file de révision manuelle.
 
 ---
@@ -79,7 +80,10 @@
 * **Persistance d'état (`cache.json`) :** Sauvegarde locale après chaque fichier traité avec succès.
   * En cas de coupure réseau ou crash API : Pop-up avec 3 choix : **[Réessayer la connexion]** / **[Exporter les X pistes déjà prêtes]** / **[Quitter]**.
   * À la réouverture : Affichage d'un check vert sur les pistes déjà traitées + proposition de reprendre les fichiers restants.
-* **File d'attente de révision (Post-Processing Queue) :** Ne jamais bloquer un traitement par lots sur un fichier problématique (titre cryptique, pochette introuvable, conflit de version). Passer à la suite et regrouper tous les cas douteux dans un onglet final pour édition manuelle (titre, artiste, import manuel d'image).
+* **File d'attente de révision interactive (Post-Processing Queue — 3 niveaux complémentaires) :** Ne jamais bloquer un traitement par lots sur un fichier problématique (titre cryptique, pochette introuvable, conflit de version). Passer à la suite et regrouper tous les cas douteux dans un onglet final. Cliquer sur une piste au statut `À réviser` ouvre directement sa fiche avec 3 mécanismes complémentaires :
+  1. **Suggestions probables (Top 3 à 5) :** Propositions renvoyées par l'API, applicables et exportables en **1 clic**.
+  2. **Barre de recherche rapide à la volée :** Correction directe de la requête (ex. retirer un mot ou chiffre parasite) et relance immédiate d'Apple Music.
+  3. **Formulaire 100 % manuel + lecteur audio local intégré :** Édition complète (Titre, Artiste, Artiste de l'album, Album, Année, Genre, Piste/Disque + import d'une pochette locale) avec écoute directe du fichier dans l'application.
 * **Lecteur Audio Intégré & Comparateur A/B (façon WhoSampled) :**
   * Écoute directe des fichiers locaux dans l'interface pour vérifier un titre cryptique.
   * En cas de **doublon détecté**, affichage côte à côte (Piste A à gauche / Piste B à droite) avec lecture audio pour comparer la qualité/version et choisir : Garder A, Garder B, Garder les deux, ou Supprimer les deux.

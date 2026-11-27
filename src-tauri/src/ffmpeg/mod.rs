@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(max_artwork_size_for_profile(&HardwareProfile::Ipod), 600);
         assert!(requires_baseline_jpeg(&HardwareProfile::Ipod));
 
-        // PSP 3000 : Force MP3 320k toujours, pochette 400px baseline
+        // PSP : Force MP3 320k toujours, pochette 400px baseline
         assert!(should_transcode_to_mp3(
             &HardwareProfile::Psp,
             &ExportFormatMode::Passthrough,

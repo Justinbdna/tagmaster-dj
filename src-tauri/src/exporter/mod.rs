@@ -36,7 +36,7 @@ pub fn export_single_track(
 }
 
 /// Exporte une piste selon le mode d'arborescence, le format audio (Passthrough / Force MP3 320k)
-/// et le profil matériel (`Standard`, `iPod`, `PSP 3000`).
+/// et le profil matériel (`Standard`, `iPod`, `PSP`).
 pub fn export_single_track_with_profile(
     source_path: &Path,
     export_root: &Path,

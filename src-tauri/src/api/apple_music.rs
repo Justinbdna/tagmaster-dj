@@ -97,7 +97,7 @@ fn http_client() -> Result<&'static Client, String> {
     CLIENT
         .get_or_init(|| {
             Client::builder()
-                .user_agent("TagmasterDJ/0.1.0 (Open Source Local Music Tagger)")
+                .user_agent("TagmasterDJ/0.2.0 (Open Source Local Music Tagger)")
                 .timeout(Duration::from_secs(15))
                 .build()
                 .map_err(|err| format!("Impossible d'initialiser le client HTTP : {err}"))
@@ -111,13 +111,15 @@ fn rate_limiter() -> &'static Mutex<Option<Instant>> {
     LIMITER.get_or_init(|| Mutex::new(None))
 }
 
-fn artist_id_cache() -> &'static std::sync::Mutex<HashMap<(String, String), Vec<u64>>> {
-    static CACHE: OnceLock<std::sync::Mutex<HashMap<(String, String), Vec<u64>>>> = OnceLock::new();
+type ArtistIdCache = std::sync::Mutex<HashMap<(String, String), Vec<u64>>>;
+
+fn artist_id_cache() -> &'static ArtistIdCache {
+    static CACHE: OnceLock<ArtistIdCache> = OnceLock::new();
     CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
 async fn resolve_artist_ids_with_cache<F, Fut>(
-    cache: &std::sync::Mutex<HashMap<(String, String), Vec<u64>>>,
+    cache: &ArtistIdCache,
     storefront: &str,
     artist_hint: &str,
     fetch_ids: F,
@@ -888,7 +890,7 @@ pub async fn search_candidates_freeform(raw_query: &str) -> Result<Vec<TrackCand
 }
 
 fn strip_version_keywords_for_artwork(query: &str) -> String {
-    let cleaned = query
+    query
         .split_whitespace()
         .filter(|tok| {
             let norm = normalize_for_match(tok);
@@ -909,8 +911,7 @@ fn strip_version_keywords_for_artwork(query: &str) -> String {
             )
         })
         .collect::<Vec<_>>()
-        .join(" ");
-    cleaned
+        .join(" ")
 }
 
 fn collect_artwork_tracks(

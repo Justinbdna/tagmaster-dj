@@ -219,7 +219,7 @@ fn select_hd_thumbnail(entry: &YtDlpEntry) -> Option<String> {
             })
             .collect();
 
-        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        ranked.sort_by_key(|a| std::cmp::Reverse(a.0));
         if let Some((_, best_url)) = ranked.into_iter().next() {
             return Some(best_url);
         }

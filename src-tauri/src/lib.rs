@@ -251,7 +251,7 @@ async fn run_batch_pipeline(
         };
 
         // 2. Paroles synchronisées temps réel (LRCLIB sans clé -> SYLT + .lrc) + fallback Genius (.env)
-        //    Ignoré pour le profil PSP 3000 (XMB ID3v2.3 strict sans .lrc ni SYLT).
+        //    Ignoré pour le profil PSP (XMB ID3v2.3 strict sans .lrc ni SYLT).
         if hardware_profile != HardwareProfile::Psp
             && (metadata.lyrics.is_none() || metadata.synced_lyrics.is_none())
         {

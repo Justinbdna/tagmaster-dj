@@ -106,7 +106,7 @@ pub fn build_export_path(
     )
 }
 
-/// Variante sensible au profil matériel (`Standard` UTF-8, `iPod` FAT32, `PSP 3000` ASCII strict).
+/// Variante sensible au profil matériel (`Standard` UTF-8, `iPod` FAT32, `PSP` ASCII strict).
 pub fn build_export_path_for_profile(
     export_root: &Path,
     mode: ExportMode,

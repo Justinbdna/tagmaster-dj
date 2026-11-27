@@ -78,7 +78,7 @@ export function Sidebar({
               Tagmaster DJ
             </h1>
             <p className="truncate text-[11px] font-medium text-muted">
-              Local-First · v{health?.version ?? "0.1.0"}
+              Local-First · v{health?.version ?? "0.2.0"}
             </p>
           </div>
         </div>

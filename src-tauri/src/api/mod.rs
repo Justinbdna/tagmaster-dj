@@ -54,7 +54,7 @@ fn merge_and_rank_candidates(
 ) -> Vec<TrackCandidate> {
     let mut merged: HashMap<(String, String, String), TrackCandidate> = HashMap::new();
 
-    for cand in existing.into_iter().chain(incoming.into_iter()) {
+    for cand in existing.into_iter().chain(incoming) {
         let key = (
             normalize_for_match(&cand.artist),
             normalize_for_match(&cand.title),
@@ -267,16 +267,16 @@ pub async fn search_candidates_by_source(
                 }
             }
 
-            if results.len() < 3 {
-                if let Ok(cands) = musicbrainz::search_candidates(&cleaned).await {
-                    results = merge_and_rank_candidates(results, cands, MAX_COMBINED_CANDIDATES);
-                }
+            if results.len() < 3
+                && let Ok(cands) = musicbrainz::search_candidates(&cleaned).await
+            {
+                results = merge_and_rank_candidates(results, cands, MAX_COMBINED_CANDIDATES);
             }
 
-            if results.len() < 3 {
-                if let Ok(cands) = discogs::search_candidates(&cleaned, app, false).await {
-                    results = merge_and_rank_candidates(results, cands, MAX_COMBINED_CANDIDATES);
-                }
+            if results.len() < 3
+                && let Ok(cands) = discogs::search_candidates(&cleaned, app, false).await
+            {
+                results = merge_and_rank_candidates(results, cands, MAX_COMBINED_CANDIDATES);
             }
 
             if results.is_empty() {

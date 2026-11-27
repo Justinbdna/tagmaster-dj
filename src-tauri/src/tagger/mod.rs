@@ -197,7 +197,7 @@ pub fn write_clean_tags(
 }
 
 /// Phase 2 avec prise en charge du profil matériel (`Standard` = ID3v2.4 + SYLT/USLT,
-/// `iPod` = ID3v2.3 + USLT, `PSP 3000` = ID3v2.3 strict sans SYLT/USLT).
+/// `iPod` = ID3v2.3 + USLT, `PSP` = ID3v2.3 strict sans SYLT/USLT).
 pub fn write_clean_tags_for_profile(
     target_path: &Path,
     metadata: &TrackMetadata,

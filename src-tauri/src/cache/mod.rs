@@ -208,10 +208,7 @@ pub fn load_session_cache(app: &tauri::AppHandle) -> Result<Option<SessionCache>
 
 pub fn get_session_cache_summary(app: &tauri::AppHandle) -> Result<SessionCacheSummary, String> {
     let path = resolve_cache_file_path(Some(app));
-    let session = match load_session_cache_from_path(&path) {
-        Ok(loaded) => loaded,
-        Err(_) => None,
-    };
+    let session = load_session_cache_from_path(&path).unwrap_or_default();
     Ok(summarize_session(session.as_ref(), &path))
 }
 

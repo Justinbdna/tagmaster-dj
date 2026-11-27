@@ -1,5 +1,5 @@
 //! Sanitizer de caractères spéciaux, emojis et compatibilité FAT32 / ASCII
-//! pour les profils matériels iPod et PSP 3000 (SPECIFICATIONS.md §4.3 · Issue #16).
+//! pour les profils matériels iPod et PSP (SPECIFICATIONS.md §4.3 · Issue #16).
 
 use crate::models::{HardwareProfile, TrackMetadata};
 
@@ -9,7 +9,7 @@ pub enum SanitizeLevel {
     Standard,
     /// Compatible FAT32 / iPod : supprime emojis et caractères de contrôle, conserve les accents latins.
     Fat32,
-    /// Strict ASCII / PSP 3000 (Memory Stick Pro Duo & XMB) : ASCII pur imprimable uniquement.
+    /// Strict ASCII / PSP (Memory Stick Pro Duo & XMB) : ASCII pur imprimable uniquement.
     StrictAscii,
 }
 
@@ -171,7 +171,7 @@ pub fn sanitize_metadata_for_profile(
         .filter(|g| !g.is_empty());
 
     if *profile == HardwareProfile::Psp {
-        // PSP 3000 XMB : ID3v2.3 propre sans paroles synchronisées ni .lrc
+        // PSP XMB : ID3v2.3 propre sans paroles synchronisées ni .lrc
         clean.lyrics = None;
         clean.synced_lyrics = None;
     }

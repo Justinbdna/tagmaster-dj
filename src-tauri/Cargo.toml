@@ -1,6 +1,6 @@
 [package]
 name = "tagmaster-dj"
-version = "0.1.0"
+version = "0.2.0"
 description = "Application desktop open-source pour nettoyer, tagger, convertir et exporter des bibliothèques musicales locales"
 authors = ["Justin"]
 license = "MIT"

@@ -19,6 +19,7 @@ import type {
   ManualExportResult,
   MetadataLookupResult,
   PipelineProgressEvent,
+  QuickSearchSource,
   ScanResult,
   SessionCache,
   SessionCacheSummary,
@@ -97,6 +98,13 @@ export async function searchYtdlpCandidates(
   return invoke<TrackCandidate[]>("search_ytdlp_candidates", { query });
 }
 
+export async function searchTrackCandidates(
+  source: QuickSearchSource,
+  query: string,
+): Promise<TrackCandidate[]> {
+  return invoke<TrackCandidate[]>("search_track_candidates", { source, query });
+}
+
 export async function searchArtworkCandidates(
   query: string,
 ): Promise<ArtworkCandidate[]> {
@@ -111,6 +119,12 @@ export async function saveGeniusApiKey(
   apiKey: string,
 ): Promise<ApiKeysSettings> {
   return invoke<ApiKeysSettings>("save_genius_api_key", { apiKey });
+}
+
+export async function saveDiscogsToken(
+  token: string,
+): Promise<ApiKeysSettings> {
+  return invoke<ApiKeysSettings>("save_discogs_token", { token });
 }
 
 export async function exportManualTrack(

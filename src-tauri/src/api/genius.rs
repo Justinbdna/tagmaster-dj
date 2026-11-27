@@ -224,6 +224,18 @@ pub fn load_genius_api_key(app: Option<&tauri::AppHandle>) -> Option<String> {
     })
 }
 
+pub const DISCOGS_ENV_KEY: &str = "DISCOGS_TOKEN";
+
+pub fn load_discogs_token(app: Option<&tauri::AppHandle>) -> Option<String> {
+    let env_path = resolve_env_file_path(app);
+    read_env_key_from_file(&env_path, DISCOGS_ENV_KEY).or_else(|| {
+        std::env::var(DISCOGS_ENV_KEY)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty() && !ENV_PLACEHOLDERS.contains(&v.as_str()))
+    })
+}
+
 pub fn get_api_keys_settings(app: &tauri::AppHandle) -> ApiKeysSettings {
     let env_path = resolve_env_file_path(Some(app));
     let key = read_env_key_from_file(&env_path, GENIUS_ENV_KEY)
@@ -231,13 +243,24 @@ pub fn get_api_keys_settings(app: &tauri::AppHandle) -> ApiKeysSettings {
             std::env::var(GENIUS_ENV_KEY)
                 .ok()
                 .map(|v| v.trim().to_string())
-                .filter(|v| !v.is_empty())
+                .filter(|v| !v.is_empty() && !ENV_PLACEHOLDERS.contains(&v.as_str()))
+        })
+        .unwrap_or_default();
+
+    let discogs_token = read_env_key_from_file(&env_path, DISCOGS_ENV_KEY)
+        .or_else(|| {
+            std::env::var(DISCOGS_ENV_KEY)
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty() && !ENV_PLACEHOLDERS.contains(&v.as_str()))
         })
         .unwrap_or_default();
 
     ApiKeysSettings {
         has_genius_api_key: !key.is_empty(),
         genius_api_key: key,
+        has_discogs_token: !discogs_token.is_empty(),
+        discogs_token,
         env_file_path: env_path.to_string_lossy().into_owned(),
     }
 }
@@ -248,13 +271,16 @@ pub fn save_genius_api_key(
 ) -> Result<ApiKeysSettings, String> {
     let env_path = resolve_env_file_path(Some(app));
     write_env_key_to_file(&env_path, GENIUS_ENV_KEY, api_key)?;
-    let stored = read_env_key_from_file(&env_path, GENIUS_ENV_KEY).unwrap_or_default();
+    Ok(get_api_keys_settings(app))
+}
 
-    Ok(ApiKeysSettings {
-        has_genius_api_key: !stored.is_empty(),
-        genius_api_key: stored,
-        env_file_path: env_path.to_string_lossy().into_owned(),
-    })
+pub fn save_discogs_token(
+    app: &tauri::AppHandle,
+    token: &str,
+) -> Result<ApiKeysSettings, String> {
+    let env_path = resolve_env_file_path(Some(app));
+    write_env_key_to_file(&env_path, DISCOGS_ENV_KEY, token)?;
+    Ok(get_api_keys_settings(app))
 }
 
 /// Retourne `true` si la piste est marquée `Instrumental` (dans le titre ou le fichier source).

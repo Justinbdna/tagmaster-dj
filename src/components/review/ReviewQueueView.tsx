@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  ChevronDown,
   ImagePlus,
   Link2,
   ListChecks,
@@ -18,12 +19,12 @@ import {
 } from "lucide-react";
 import {
   exportManualTrack,
+  getApiKeysSettings,
   isTauriEnvironment,
   openArtworkFileDialog,
   readTrackTags,
-  searchAppleMusicCandidates,
   searchArtworkCandidates,
-  searchYtdlpCandidates,
+  searchTrackCandidates,
   toLocalAssetUrl,
 } from "../../services/tauriBridge";
 import type {
@@ -262,6 +263,16 @@ function candidateToMetadata(candidate: TrackCandidate): TrackMetadata {
   };
 }
 
+const QUICK_SEARCH_SOURCES: { id: QuickSearchSource; label: string }[] = [
+  { id: "auto", label: "Auto" },
+  { id: "apple_music", label: "Apple Music" },
+  { id: "deezer", label: "Deezer" },
+  { id: "youtube", label: "YouTube" },
+  { id: "soundcloud", label: "SoundCloud" },
+  { id: "music_brainz", label: "MusicBrainz" },
+  { id: "discogs", label: "Discogs" },
+];
+
 export function ReviewQueueView({
   reviewTracks,
   selectedTrackId,
@@ -281,8 +292,9 @@ export function ReviewQueueView({
   }, [reviewTracks, selectedTrackId]);
 
   const [quickQuery, setQuickQuery] = useState("");
-  const [searchSource, setSearchSource] =
-    useState<QuickSearchSource>("apple_music");
+  const [searchSource, setSearchSource] = useState<QuickSearchSource>("auto");
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [hasDiscogsToken, setHasDiscogsToken] = useState(false);
   const [suggestions, setSuggestions] = useState<TrackCandidate[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [exportingKey, setExportingKey] = useState<string | null>(null);
@@ -314,11 +326,48 @@ export function ReviewQueueView({
   });
 
   const quickQueryDirtyRef = useRef(false);
+  const sourceMenuRef = useRef<HTMLDivElement | null>(null);
   const rightPaneRef = useRef<HTMLElement | null>(null);
   const manualFormRef = useRef<HTMLFormElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
   const focusTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    let active = true;
+    getApiKeysSettings()
+      .then((settings) => {
+        if (active) setHasDiscogsToken(settings.hasDiscogsToken);
+      })
+      .catch(() => {
+        // Ignore
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sourceMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        sourceMenuRef.current &&
+        !sourceMenuRef.current.contains(event.target as Node)
+      ) {
+        setSourceMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSourceMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sourceMenuOpen]);
 
   useEffect(() => {
     return () => {
@@ -346,7 +395,8 @@ export function ReviewQueueView({
     setPreviewLoadError(false);
     setSuggestions(activeTrack.candidates ?? []);
     setActionError(null);
-    setSearchSource(activeTrack.hasProtectedKeyword ? "yt_dlp" : "apple_music");
+    setSearchSource("auto");
+    setSourceMenuOpen(false);
     setProtectedLabel(detectProtectedKeywordLabel(activeTrack.fileName));
     rightPaneRef.current?.scrollTo({ top: 0, behavior: "instant" });
 
@@ -497,9 +547,7 @@ export function ReviewQueueView({
     if (!cleaned || isSearching) return;
     if (!isTauriEnvironment()) {
       setActionError(
-        searchSource === "yt_dlp"
-          ? "La recherche YouTube / SoundCloud nécessite l'application desktop Tauri."
-          : "La recherche Apple Music nécessite l'application desktop Tauri.",
+        "La recherche rapide nécessite l'application desktop Tauri.",
       );
       return;
     }
@@ -507,23 +555,18 @@ export function ReviewQueueView({
     setActionError(null);
     setIsSearching(true);
     try {
-      const results =
-        searchSource === "yt_dlp"
-          ? await searchYtdlpCandidates(cleaned)
-          : await searchAppleMusicCandidates(cleaned);
+      const results = await searchTrackCandidates(searchSource, cleaned);
       setSuggestions(results);
       if (results.length === 0) {
         setActionError(
-          `Aucun résultat trouvé pour « ${cleaned} ». Essayez de raccourcir la requête ou utilisez le formulaire manuel.`,
+          `Aucun résultat trouvé pour « ${cleaned} ». Essayez une autre source ou raccourcissez la requête.`,
         );
       }
     } catch (err) {
       setActionError(
         err instanceof Error
           ? err.message
-          : searchSource === "yt_dlp"
-            ? "Erreur pendant la recherche YouTube / SoundCloud via yt-dlp."
-            : "Erreur pendant la recherche rapide Apple Music.",
+          : "Erreur pendant la recherche rapide.",
       );
     } finally {
       setIsSearching(false);
@@ -923,22 +966,6 @@ export function ReviewQueueView({
         ref={rightPaneRef}
         className="content-surface custom-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto rounded-[24px] p-5"
       >
-        {/* Persistent Back Button */}
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={onBackToLibrary}
-            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium text-primary"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 text-sky-400" />
-            <span>Retour à la Bibliothèque</span>
-          </button>
-
-          <span className="text-[11px] font-medium text-muted">
-            Export {exportMode === "dynamic" ? "Dynamique" : "Plat"}
-          </span>
-        </div>
-
         {/* Header + Local Audio Player */}
         <div className="flex flex-col gap-3 rounded-[18px] border border-[var(--content-border)] bg-[var(--content-card-bg)] p-4">
           <div className="min-w-0">
@@ -963,7 +990,7 @@ export function ReviewQueueView({
               {formatFileSize(activeTrack.sizeBytes)}
             </p>
             {activeTrack.reviewReason && (
-              <p className="mt-1.5 text-[12px] text-amber-300/90">
+              <p className="text-semantic-warning mt-1.5 text-[12px] font-medium">
                 {activeTrack.reviewReason}
               </p>
             )}
@@ -989,36 +1016,72 @@ export function ReviewQueueView({
               <h4>Recherche rapide</h4>
             </div>
 
-            {/* Source toggle selector */}
-            <div
-              role="group"
-              aria-label="Source de recherche rapide"
-              className="flex items-center gap-1 rounded-full border border-[var(--content-border)] bg-[var(--content-bg)] p-0.5"
-            >
+            {/* Unified 7-source custom Liquid Glass popover */}
+            <div ref={sourceMenuRef} className="relative flex items-center gap-2">
+              <span className="text-[11px] font-medium text-muted">
+                Source
+              </span>
               <button
                 type="button"
-                onClick={() => setSearchSource("apple_music")}
                 disabled={isSearching}
-                className={`cursor-pointer rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
-                  searchSource === "apple_music"
-                    ? "bg-sky-500/20 text-sky-400 shadow-xs"
-                    : "text-secondary hover:text-primary"
-                }`}
+                onClick={() => setSourceMenuOpen((prev) => !prev)}
+                aria-haspopup="listbox"
+                aria-expanded={sourceMenuOpen}
+                aria-label="Source de recherche rapide"
+                className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11.5px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Apple Music
+                <span>
+                  {QUICK_SEARCH_SOURCES.find((s) => s.id === searchSource)
+                    ?.label ?? "Auto"}
+                </span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 text-secondary transition-transform duration-150 ${
+                    sourceMenuOpen ? "rotate-180" : ""
+                  }`}
+                />
               </button>
-              <button
-                type="button"
-                onClick={() => setSearchSource("yt_dlp")}
-                disabled={isSearching}
-                className={`cursor-pointer rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
-                  searchSource === "yt_dlp"
-                    ? "bg-rose-500/20 text-rose-300 shadow-xs"
-                    : "text-secondary hover:text-primary"
-                }`}
-              >
-                YouTube / SoundCloud
-              </button>
+
+              {sourceMenuOpen && (
+                <div
+                  role="listbox"
+                  aria-label="Choisir une source de recherche"
+                  className="modal-surface absolute right-0 top-full z-40 mt-1.5 w-52 rounded-[16px] p-1.5"
+                >
+                  {QUICK_SEARCH_SOURCES.map((opt) => {
+                    const isSelected = searchSource === opt.id;
+                    const needsToken = opt.id === "discogs" && !hasDiscogsToken;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => {
+                          setSearchSource(opt.id);
+                          setSourceMenuOpen(false);
+                        }}
+                        className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-[10px] px-3 py-1.5 text-left text-[12px] font-medium transition-colors ${
+                          isSelected
+                            ? "bg-sky-500/15 text-primary"
+                            : "text-secondary hover:bg-[var(--content-card-hover)] hover:text-primary"
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                          <span>{opt.label}</span>
+                          {needsToken && (
+                            <span className="text-[10px] font-normal text-muted">
+                              (token requis)
+                            </span>
+                          )}
+                        </span>
+                        {isSelected && (
+                          <Check className="text-semantic-info h-3.5 w-3.5 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1034,7 +1097,7 @@ export function ReviewQueueView({
                 setQuickQuery(e.target.value);
               }}
               placeholder={
-                searchSource === "yt_dlp"
+                searchSource === "youtube" || searchSource === "soundcloud"
                   ? "Ex: Daft Punk Get Lucky Remix ou Bad Bunny Live"
                   : "Ex: Bad Bunny NUEVAYoL ou Shay - T mimi"
               }
@@ -1084,17 +1147,29 @@ export function ReviewQueueView({
                 const key = `candidate-${idx}`;
                 const isBusy = exportingKey === key;
                 const confidencePct = Math.round(cand.confidenceScore * 100);
-                const platformLabel = cand.platform ?? cand.storefront;
-                const isYtDlp =
-                  cand.source === "yt_dlp" ||
-                  platformLabel === "YouTube" ||
-                  platformLabel === "SoundCloud";
+                const platformLabel =
+                  cand.platform ??
+                  (cand.source === "deezer"
+                    ? "Deezer"
+                    : cand.source === "music_brainz"
+                      ? "MusicBrainz"
+                      : cand.source === "discogs"
+                        ? "Discogs"
+                        : cand.source === "yt_dlp"
+                          ? cand.storefront
+                          : `Apple Music ${cand.storefront}`);
                 const sourceBadgeClass =
                   platformLabel === "YouTube"
                     ? "badge-youtube"
                     : platformLabel === "SoundCloud"
                       ? "badge-soundcloud"
-                      : "badge-info";
+                      : platformLabel === "Deezer"
+                        ? "badge-deezer"
+                        : platformLabel === "MusicBrainz"
+                          ? "badge-musicbrainz"
+                          : platformLabel === "Discogs"
+                            ? "badge-discogs"
+                            : "badge-info";
 
                 return (
                   <li
@@ -1122,9 +1197,7 @@ export function ReviewQueueView({
                           <span
                             className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${sourceBadgeClass}`}
                           >
-                            {isYtDlp
-                              ? `${platformLabel} · ${confidencePct}%`
-                              : `${cand.storefront} · ${confidencePct}%`}
+                            {platformLabel} · {confidencePct}%
                           </span>
                         </div>
                         <p className="mt-1 text-[11.5px] text-secondary">
@@ -1477,7 +1550,7 @@ export function ReviewQueueView({
                   </button>
                 </div>
                 {directUrlError && (
-                  <p className="text-[11.5px] text-amber-400">
+                  <p className="text-semantic-warning text-[11.5px] font-medium">
                     {directUrlError}
                   </p>
                 )}
@@ -1514,7 +1587,7 @@ export function ReviewQueueView({
               </div>
 
               {artworkPickerError && (
-                <p className="mt-2 text-[11.5px] text-amber-400">
+                <p className="text-semantic-warning mt-2 text-[11.5px] font-medium">
                   {artworkPickerError}
                 </p>
               )}

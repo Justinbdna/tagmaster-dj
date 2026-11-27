@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
   CheckCircle2,
+  ChevronDown,
   Copy,
   FileAudio2,
   FolderOpen,
@@ -85,9 +87,32 @@ export function TrackQueueList({
   const isBusy = isScanning || isRunningBatch;
   const [query, setQuery] = useState("");
   const [selectedExt, setSelectedExt] = useState<string>("ALL");
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
+  const formatMenuRef = useRef<HTMLDivElement | null>(null);
   const [brokenArtworkUrls, setBrokenArtworkUrls] = useState<Set<string>>(
     () => new Set(),
   );
+
+  useEffect(() => {
+    if (!formatMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        formatMenuRef.current &&
+        !formatMenuRef.current.contains(event.target as Node)
+      ) {
+        setFormatMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFormatMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [formatMenuOpen]);
 
   const formatCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -96,6 +121,24 @@ export function TrackQueueList({
     }
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [tracks]);
+
+  useEffect(() => {
+    if (
+      selectedExt !== "ALL" &&
+      !formatCounts.some(([ext]) => ext === selectedExt)
+    ) {
+      setSelectedExt("ALL");
+    }
+  }, [formatCounts, selectedExt]);
+
+  const activeFormatCount =
+    selectedExt === "ALL"
+      ? tracks.length
+      : (formatCounts.find(([ext]) => ext === selectedExt)?.[1] ?? 0);
+  const activeFormatLabel =
+    selectedExt === "ALL"
+      ? `Tous (${tracks.length})`
+      : `.${selectedExt} (${activeFormatCount})`;
 
   const filteredTracks = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -137,33 +180,78 @@ export function TrackQueueList({
           )}
         </div>
 
-        {/* Format filter chips */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* Compact Format Filter Dropdown */}
+        <div ref={formatMenuRef} className="relative">
           <button
             type="button"
-            onClick={() => setSelectedExt("ALL")}
-            className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              selectedExt === "ALL"
-                ? "badge-info border"
-                : "bg-[var(--content-card-bg)] text-secondary hover:text-primary"
-            }`}
+            onClick={() => setFormatMenuOpen((prev) => !prev)}
+            aria-haspopup="listbox"
+            aria-expanded={formatMenuOpen}
+            className="liquid-glass-pill flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold text-primary"
           >
-            Tous ({tracks.length})
-          </button>
-          {formatCounts.map(([ext, count]) => (
-            <button
-              key={ext}
-              type="button"
-              onClick={() => setSelectedExt(ext)}
-              className={`cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                selectedExt === ext
-                  ? "badge-info border"
-                  : "bg-[var(--content-card-bg)] text-secondary hover:text-primary"
+            <span className="tabular-nums">{activeFormatLabel}</span>
+            <ChevronDown
+              className={`h-3.5 w-3.5 text-secondary transition-transform duration-150 ${
+                formatMenuOpen ? "rotate-180" : ""
               }`}
+            />
+          </button>
+
+          {formatMenuOpen && (
+            <div
+              role="listbox"
+              aria-label="Filtrer par format audio"
+              className="modal-surface absolute left-0 top-full z-30 mt-1.5 min-w-[164px] rounded-[16px] p-1.5"
             >
-              .{ext} ({count})
-            </button>
-          ))}
+              <button
+                type="button"
+                role="option"
+                aria-selected={selectedExt === "ALL"}
+                onClick={() => {
+                  setSelectedExt("ALL");
+                  setFormatMenuOpen(false);
+                }}
+                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-[10px] px-3 py-1.5 text-left text-[12px] font-medium transition-colors ${
+                  selectedExt === "ALL"
+                    ? "bg-sky-500/15 text-primary"
+                    : "text-secondary hover:bg-[var(--content-card-hover)] hover:text-primary"
+                }`}
+              >
+                <span className="tabular-nums">Tous ({tracks.length})</span>
+                {selectedExt === "ALL" && (
+                  <Check className="text-semantic-info h-3.5 w-3.5 shrink-0" />
+                )}
+              </button>
+
+              {formatCounts.map(([ext, count]) => {
+                const isSelected = selectedExt === ext;
+                return (
+                  <button
+                    key={ext}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setSelectedExt(ext);
+                      setFormatMenuOpen(false);
+                    }}
+                    className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-[10px] px-3 py-1.5 text-left text-[12px] font-medium transition-colors ${
+                      isSelected
+                        ? "bg-sky-500/15 text-primary"
+                        : "text-secondary hover:bg-[var(--content-card-hover)] hover:text-primary"
+                    }`}
+                  >
+                    <span className="tabular-nums">
+                      .{ext} ({count})
+                    </span>
+                    {isSelected && (
+                      <Check className="text-semantic-info h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Quick queue actions */}

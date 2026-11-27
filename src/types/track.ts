@@ -56,6 +56,7 @@ export interface AudioTrackItem {
   metadata?: TrackMetadata;
   exportedPath?: string;
   localArtworkPath?: string;
+  embeddedArtworkPath?: string;
   reviewReason?: string;
   candidates?: TrackCandidate[];
   lastQueryUsed?: string;
@@ -156,6 +157,7 @@ export interface PipelineProgressEvent {
   metadata?: TrackMetadata;
   exportedPath?: string;
   localArtworkPath?: string;
+  embeddedArtworkPath?: string;
   reviewReason?: string;
   queryUsed?: string;
   candidates?: TrackCandidate[];
@@ -196,6 +198,17 @@ export interface BatchSummary {
   interruptedByNetwork?: boolean;
   networkErrorMessage?: string;
   remainingCount?: number;
+  lastExportedPath?: string;
+}
+
+export interface ArtworkExtractInput {
+  id: string;
+  sourcePath: string;
+}
+
+export interface TrackEmbeddedArtwork {
+  trackId: string;
+  embeddedArtworkPath: string;
 }
 
 export interface SessionCache {

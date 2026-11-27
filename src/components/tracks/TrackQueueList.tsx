@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
   ChevronDown,
   Copy,
+  ExternalLink,
   FileAudio2,
   FolderOpen,
   Loader2,
@@ -34,11 +35,13 @@ interface TrackQueueListProps {
   onRemoveTrack: (id: string) => void;
   onLookupTrack: (id: string) => void;
   onOpenReviewTrack: (id: string) => void;
+  onRevealExportedFile: (path: string) => void;
   onClearAll: () => void;
   onPickFolder: () => void;
   onPickFiles: () => void;
   isScanning: boolean;
   isRunningBatch: boolean;
+  batchAction: "lookup" | "export" | null;
   isResumedSession?: boolean;
 }
 
@@ -69,6 +72,229 @@ const STATUS_BADGE: Record<
   },
 };
 
+interface TrackQueueRowProps {
+  track: AudioTrackItem;
+  index: number;
+  dupGroup?: DuplicateGroup;
+  isBusy: boolean;
+  isRunningBatch: boolean;
+  isProcessingExport: boolean;
+  isResumedSession: boolean;
+  artworkSrc?: string;
+  isArtworkBroken: boolean;
+  onArtworkError: (src: string) => void;
+  onOpenDuplicates: (groupKey?: string) => void;
+  onOpenReviewTrack: (id: string) => void;
+  onRevealExportedFile: (path: string) => void;
+  onLookupTrack: (id: string) => void;
+  onRemoveTrack: (id: string) => void;
+}
+
+const TrackQueueRow = memo(function TrackQueueRow({
+  track,
+  index,
+  dupGroup,
+  isBusy,
+  isRunningBatch,
+  isProcessingExport,
+  isResumedSession,
+  artworkSrc,
+  isArtworkBroken,
+  onArtworkError,
+  onOpenDuplicates,
+  onOpenReviewTrack,
+  onRevealExportedFile,
+  onLookupTrack,
+  onRemoveTrack,
+}: TrackQueueRowProps) {
+  const badge =
+    track.status === "completed" && track.exportedPath
+      ? { label: "Exporté", className: STATUS_BADGE.completed.className }
+      : track.status === "processing"
+        ? {
+            label: isProcessingExport ? "Export…" : "Recherche…",
+            className: STATUS_BADGE.processing.className,
+          }
+        : STATUS_BADGE[track.status];
+  const isReviewable =
+    track.status === "needs_review" || track.status === "failed";
+  const isExported =
+    track.status === "completed" && Boolean(track.exportedPath);
+  const meta = track.metadata;
+  const showGreenCheck =
+    track.status === "completed" &&
+    (Boolean(track.exportedPath) || isResumedSession);
+  const canShowImage = Boolean(artworkSrc) && !isArtworkBroken;
+
+  return (
+    <li className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_96px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]">
+      <span className="text-center text-[11.5px] font-medium tabular-nums text-muted">
+        {index + 1}
+      </span>
+
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] shadow-sm">
+          {canShowImage && artworkSrc ? (
+            <img
+              src={artworkSrc}
+              alt={meta?.album ?? track.fileName}
+              loading="lazy"
+              decoding="async"
+              onError={() => onArtworkError(artworkSrc)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <Music className="h-4 w-4 text-sky-400" strokeWidth={1.85} />
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p
+              className="truncate text-[13px] font-medium text-primary"
+              title={track.sourcePath}
+            >
+              {meta ? `${meta.artist} — ${meta.title}` : track.fileName}
+            </p>
+            {track.hasProtectedKeyword && (
+              <span
+                title="Mot-clé intouchable détecté (Live, Remix, Acoustic, Sped Up, Chopped, Instrumental, Mashup) — protégé contre un écrasement studio Apple Music"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border badge-warning px-2 py-0.5 text-[10px] font-semibold"
+              >
+                <ShieldAlert className="h-3 w-3" />
+                Version protégée
+              </span>
+            )}
+            {dupGroup && (
+              <button
+                type="button"
+                onClick={() => onOpenDuplicates(dupGroup.groupKey)}
+                disabled={isBusy}
+                title={`Ouvrir le Comparateur A/B (${dupGroup.trackIds.length} fichiers)`}
+                className="badge-duplicate inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Copy className="h-2.5 w-2.5" />
+                <span>
+                  {formatDuplicateBadgeLabel(dupGroup.trackIds.length)}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {meta ? (
+            <p className="truncate text-[11px] text-secondary">
+              {meta.album}
+              {meta.year ? ` (${meta.year})` : ""}
+              {meta.genre ? ` · ${meta.genre}` : ""}
+              {` · Album Artist : ${meta.albumArtist}`}
+              {meta.discTotal && meta.discTotal > 1
+                ? ` · Disque ${meta.discNumber ?? 1}/${meta.discTotal}`
+                : ""}
+            </p>
+          ) : track.reviewReason ? (
+            <p
+              className={`truncate text-[11px] font-medium ${
+                track.status === "failed"
+                  ? "text-semantic-danger"
+                  : "text-semantic-warning"
+              }`}
+              title={track.reviewReason}
+            >
+              {track.reviewReason}
+            </p>
+          ) : (
+            <p className="truncate text-[11px] text-muted">
+              {track.parentFolder}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <span className="w-fit rounded-md border border-[var(--content-border)] bg-[var(--content-card-bg)] px-2 py-0.5 text-[10.5px] font-semibold tracking-wider text-secondary">
+        {track.extension}
+      </span>
+
+      <span className="text-right text-[12px] tabular-nums text-secondary">
+        {formatFileSize(track.sizeBytes)}
+      </span>
+
+      <div className="flex justify-center">
+        {isReviewable ? (
+          <button
+            type="button"
+            onClick={() => onOpenReviewTrack(track.id)}
+            title="Ouvrir dans la File de révision"
+            className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold transition-transform hover:scale-105 ${badge.className}`}
+          >
+            {badge.label}
+          </button>
+        ) : isExported && track.exportedPath ? (
+          <button
+            type="button"
+            onClick={() => onRevealExportedFile(track.exportedPath!)}
+            title="Afficher le fichier exporté"
+            className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold transition-transform hover:scale-105 hover:brightness-105 ${badge.className}`}
+          >
+            <CheckCircle2 className="h-3 w-3 shrink-0" />
+            <span>{badge.label}</span>
+            <ExternalLink className="h-2.5 w-2.5 shrink-0 opacity-75" />
+          </button>
+        ) : (
+          <span
+            title={track.exportedPath ?? track.reviewReason}
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
+          >
+            {showGreenCheck && <CheckCircle2 className="h-3 w-3 shrink-0" />}
+            <span>{badge.label}</span>
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-1">
+        <button
+          type="button"
+          onClick={() => onOpenReviewTrack(track.id)}
+          disabled={isRunningBatch || track.status === "processing"}
+          title="Éditer les métadonnées ou rechercher une autre version"
+          aria-label={`Éditer ${track.fileName}`}
+          className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            isReviewable
+              ? "text-semantic-warning hover:bg-amber-500/15"
+              : "text-secondary hover:bg-white/10 hover:text-primary"
+          }`}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onLookupTrack(track.id)}
+          disabled={isRunningBatch || track.status === "processing"}
+          title="Tester l'identification Apple Music (US / UK / FR) — lecture seule, sans modifier le fichier"
+          aria-label={`Identifier ${track.fileName} via Apple Music`}
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400 transition-colors hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50"
+        >
+          {track.status === "processing" ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onRemoveTrack(track.id)}
+          disabled={isRunningBatch}
+          aria-label={`Retirer ${track.fileName}`}
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted opacity-60 transition-all hover:bg-rose-500/15 hover:text-rose-400 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </li>
+  );
+});
+
 export function TrackQueueList({
   tracks,
   duplicateGroups,
@@ -77,11 +303,13 @@ export function TrackQueueList({
   onRemoveTrack,
   onLookupTrack,
   onOpenReviewTrack,
+  onRevealExportedFile,
   onClearAll,
   onPickFolder,
   onPickFiles,
   isScanning,
   isRunningBatch,
+  batchAction,
   isResumedSession = false,
 }: TrackQueueListProps) {
   const isBusy = isScanning || isRunningBatch;
@@ -92,6 +320,15 @@ export function TrackQueueList({
   const [brokenArtworkUrls, setBrokenArtworkUrls] = useState<Set<string>>(
     () => new Set(),
   );
+
+  const handleArtworkError = useCallback((src: string) => {
+    setBrokenArtworkUrls((prev) => {
+      if (prev.has(src)) return prev;
+      const next = new Set(prev);
+      next.add(src);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!formatMenuOpen) return;
@@ -322,193 +559,37 @@ export function TrackQueueList({
         ) : (
           <ul className="flex flex-col gap-1">
             {filteredTracks.map((track, idx) => {
-              const badge =
-                track.status === "completed" && track.exportedPath
-                  ? { label: "Exporté", className: STATUS_BADGE.completed.className }
-                  : STATUS_BADGE[track.status];
-              const isReviewable =
-                track.status === "needs_review" || track.status === "failed";
-              const meta = track.metadata;
-              const dupGroup = duplicateGroupByTrackId.get(track.id);
-              const showGreenCheck =
-                track.status === "completed" &&
-                (Boolean(track.exportedPath) || isResumedSession);
+              const artworkSrc = track.localArtworkPath
+                ? toLocalAssetUrl(track.localArtworkPath)
+                : track.metadata?.artworkUrl
+                  ? track.metadata.artworkUrl
+                  : track.embeddedArtworkPath
+                    ? toLocalAssetUrl(track.embeddedArtworkPath)
+                    : undefined;
               return (
-                <li
+                <TrackQueueRow
                   key={track.id}
-                  className="group grid grid-cols-[34px_minmax(0,1fr)_72px_78px_106px_96px] items-center gap-3 rounded-[14px] px-2.5 py-2.5 transition-colors hover:bg-[var(--content-card-hover)]"
-                >
-                  <span className="text-center text-[11.5px] font-medium tabular-nums text-muted">
-                    {idx + 1}
-                  </span>
-
-                  <div className="flex min-w-0 items-center gap-3">
-                    {(() => {
-                      const artworkSrc = track.localArtworkPath
-                        ? toLocalAssetUrl(track.localArtworkPath)
-                        : meta?.artworkUrl;
-                      const canShowImage =
-                        Boolean(artworkSrc) &&
-                        !brokenArtworkUrls.has(artworkSrc as string);
-                      return canShowImage ? (
-                        <img
-                          src={artworkSrc}
-                          alt={meta?.album ?? track.fileName}
-                          onError={() => {
-                            if (!artworkSrc) return;
-                            setBrokenArtworkUrls((prev) => {
-                              if (prev.has(artworkSrc)) return prev;
-                              const next = new Set(prev);
-                              next.add(artworkSrc);
-                              return next;
-                            });
-                          }}
-                          className="h-10 w-10 shrink-0 rounded-[10px] border border-[var(--content-border)] object-cover shadow-sm"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400">
-                          <Music className="h-4 w-4" strokeWidth={1.85} />
-                        </div>
-                      );
-                    })()}
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p
-                          className="truncate text-[13px] font-medium text-primary"
-                          title={track.sourcePath}
-                        >
-                          {meta ? `${meta.artist} — ${meta.title}` : track.fileName}
-                        </p>
-                        {track.hasProtectedKeyword && (
-                          <span
-                            title="Mot-clé intouchable détecté (Live, Remix, Acoustic, Sped Up, Chopped, Instrumental, Mashup) — protégé contre un écrasement studio Apple Music"
-                            className="inline-flex shrink-0 items-center gap-1 rounded-full border badge-warning px-2 py-0.5 text-[10px] font-semibold"
-                          >
-                            <ShieldAlert className="h-3 w-3" />
-                            Version protégée
-                          </span>
-                        )}
-                        {dupGroup && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenDuplicates(dupGroup.groupKey)}
-                            disabled={isBusy}
-                            title={`Ouvrir le Comparateur A/B (${dupGroup.trackIds.length} fichiers)`}
-                            className="badge-duplicate inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Copy className="h-2.5 w-2.5" />
-                            <span>
-                              {formatDuplicateBadgeLabel(
-                                dupGroup.trackIds.length,
-                              )}
-                            </span>
-                          </button>
-                        )}
-                      </div>
-
-                      {meta ? (
-                        <p className="truncate text-[11px] text-secondary">
-                          {meta.album}
-                          {meta.year ? ` (${meta.year})` : ""}
-                          {meta.genre ? ` · ${meta.genre}` : ""}
-                          {` · Album Artist : ${meta.albumArtist}`}
-                          {meta.discTotal && meta.discTotal > 1
-                            ? ` · Disque ${meta.discNumber ?? 1}/${meta.discTotal}`
-                            : ""}
-                        </p>
-                      ) : track.reviewReason ? (
-                        <p
-                          className={`truncate text-[11px] font-medium ${
-                            track.status === "failed"
-                              ? "text-semantic-danger"
-                              : "text-semantic-warning"
-                          }`}
-                          title={track.reviewReason}
-                        >
-                          {track.reviewReason}
-                        </p>
-                      ) : (
-                        <p className="truncate text-[11px] text-muted">
-                          {track.parentFolder}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <span className="w-fit rounded-md border border-[var(--content-border)] bg-[var(--content-card-bg)] px-2 py-0.5 text-[10.5px] font-semibold tracking-wider text-secondary">
-                    {track.extension}
-                  </span>
-
-                  <span className="text-right text-[12px] tabular-nums text-secondary">
-                    {formatFileSize(track.sizeBytes)}
-                  </span>
-
-                  <div className="flex justify-center">
-                    {isReviewable ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenReviewTrack(track.id)}
-                        title="Ouvrir dans la File de révision"
-                        className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold transition-transform hover:scale-105 ${badge.className}`}
-                      >
-                        {badge.label}
-                      </button>
-                    ) : (
-                      <span
-                        title={track.exportedPath ?? track.reviewReason}
-                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10.5px] font-semibold ${badge.className}`}
-                      >
-                        {showGreenCheck && (
-                          <CheckCircle2 className="h-3 w-3 shrink-0" />
-                        )}
-                        <span>{badge.label}</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onOpenReviewTrack(track.id)}
-                      disabled={isRunningBatch || track.status === "processing"}
-                      title="Éditer les métadonnées ou rechercher une autre version"
-                      aria-label={`Éditer ${track.fileName}`}
-                      className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                        isReviewable
-                          ? "text-semantic-warning hover:bg-amber-500/15"
-                          : "text-secondary hover:bg-white/10 hover:text-primary"
-                      }`}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onLookupTrack(track.id)}
-                      disabled={isRunningBatch || track.status === "processing"}
-                      title="Tester l'identification Apple Music (US / UK / FR) — lecture seule, sans modifier le fichier"
-                      aria-label={`Identifier ${track.fileName} via Apple Music`}
-                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[var(--content-border)] bg-[var(--content-card-bg)] text-sky-400 transition-colors hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50"
-                    >
-                      {track.status === "processing" ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onRemoveTrack(track.id)}
-                      disabled={isRunningBatch}
-                      aria-label={`Retirer ${track.fileName}`}
-                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-muted opacity-60 transition-all hover:bg-rose-500/15 hover:text-rose-400 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </li>
+                  track={track}
+                  index={idx}
+                  dupGroup={duplicateGroupByTrackId.get(track.id)}
+                  isBusy={isBusy}
+                  isRunningBatch={isRunningBatch}
+                  isProcessingExport={
+                    batchAction === "export" && track.status === "processing"
+                  }
+                  isResumedSession={isResumedSession}
+                  artworkSrc={artworkSrc}
+                  isArtworkBroken={
+                    Boolean(artworkSrc) &&
+                    brokenArtworkUrls.has(artworkSrc as string)
+                  }
+                  onArtworkError={handleArtworkError}
+                  onOpenDuplicates={onOpenDuplicates}
+                  onOpenReviewTrack={onOpenReviewTrack}
+                  onRevealExportedFile={onRevealExportedFile}
+                  onLookupTrack={onLookupTrack}
+                  onRemoveTrack={onRemoveTrack}
+                />
               );
             })}
           </ul>

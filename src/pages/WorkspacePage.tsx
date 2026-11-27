@@ -98,9 +98,48 @@ export function WorkspacePage() {
 
   const isFocusMode = activeView === "review" || activeView === "duplicates";
 
-  const showToast = useCallback((message: string) => {
-    setToast({ id: Date.now(), message });
-  }, []);
+  const showToast = useCallback(
+    (
+      message: string,
+      action?: { actionLabel: string; onAction: () => void },
+    ) => {
+      setToast({
+        id: Date.now(),
+        message,
+        actionLabel: action?.actionLabel,
+        onAction: action?.onAction,
+      });
+    },
+    [],
+  );
+
+  const buildExportToastAction = useCallback(
+    (completedCount: number, lastExportedPath?: string) => ({
+      actionLabel: "Voir",
+      onAction: () => {
+        if (completedCount === 1 && lastExportedPath) {
+          void library.revealExportedFile(lastExportedPath);
+        } else {
+          void library.openExportFolder();
+        }
+      },
+    }),
+    [library.openExportFolder, library.revealExportedFile],
+  );
+
+  const handleLookupTrack = useCallback(
+    (id: string) => {
+      void library.lookupTrack(id);
+    },
+    [library.lookupTrack],
+  );
+
+  const handleRevealExportedFile = useCallback(
+    (path: string) => {
+      void library.revealExportedFile(path);
+    },
+    [library.revealExportedFile],
+  );
 
   const openTrackInReview = useCallback((trackId: string) => {
     setSelectedReviewTrackId(trackId);
@@ -138,10 +177,19 @@ export function WorkspacePage() {
       if (summary && !summary.interruptedByNetwork && summary.completedCount > 0) {
         showToast(
           `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+          buildExportToastAction(
+            summary.completedCount,
+            summary.lastExportedPath,
+          ),
         );
       }
     },
-    [exportMode, library.startBatchPipeline, showToast],
+    [
+      buildExportToastAction,
+      exportMode,
+      library.startBatchPipeline,
+      showToast,
+    ],
   );
 
   const handleResumeSession = useCallback(async () => {
@@ -166,18 +214,30 @@ export function WorkspacePage() {
     ) {
       showToast(
         `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+        buildExportToastAction(
+          summary.completedCount,
+          summary.lastExportedPath,
+        ),
       );
     }
-  }, [library.retryInterruptedBatch, showToast]);
+  }, [buildExportToastAction, library.retryInterruptedBatch, showToast]);
 
   const handleExportReadyFromInterruption = useCallback(async () => {
     const summary = await library.exportReadyTracksFromInterruption();
     if (summary && summary.completedCount > 0) {
       showToast(
         `Export partiel terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+        buildExportToastAction(
+          summary.completedCount,
+          summary.lastExportedPath,
+        ),
       );
     }
-  }, [library.exportReadyTracksFromInterruption, showToast]);
+  }, [
+    buildExportToastAction,
+    library.exportReadyTracksFromInterruption,
+    showToast,
+  ]);
 
   const handleTrackValidatedFromReview = useCallback(
     (trackId: string, metadata: TrackMetadata, localArtworkPath?: string) => {
@@ -216,6 +276,7 @@ export function WorkspacePage() {
       const remainingList = reviewTracks.filter((t) => t.id !== trackId);
       library.resolveTrackFromReview(trackId, result, localArtworkPath);
 
+      const revealAction = buildExportToastAction(1, result.exportedPath);
       if (wasInReviewQueue && remainingList.length === 0) {
         setSelectedReviewTrackId(null);
         setActiveView("library");
@@ -223,17 +284,19 @@ export function WorkspacePage() {
           library.isRunningBatch
             ? "Export terminé — analyse du lot en cours…"
             : "File de révision terminée — toutes les pistes sont exportées",
+          revealAction,
         );
       } else if (!wasInReviewQueue) {
         setSelectedReviewTrackId(null);
         setActiveView("library");
-        showToast("Export terminé — 1 piste exportée");
+        showToast("Export terminé — 1 piste exportée", revealAction);
       } else {
         setSelectedReviewTrackId(remainingList[0].id);
-        showToast("Export terminé — 1 piste exportée");
+        showToast("Export terminé — 1 piste exportée", revealAction);
       }
     },
     [
+      buildExportToastAction,
       library.isRunningBatch,
       library.resolveTrackFromReview,
       reviewTracks,
@@ -362,13 +425,15 @@ export function WorkspacePage() {
                   duplicateGroupByTrackId={library.duplicateGroupByTrackId}
                   onOpenDuplicates={openDuplicateComparator}
                   onRemoveTrack={library.removeTrack}
-                  onLookupTrack={(id) => void library.lookupTrack(id)}
+                  onLookupTrack={handleLookupTrack}
                   onOpenReviewTrack={openTrackInReview}
+                  onRevealExportedFile={handleRevealExportedFile}
                   onClearAll={library.clearTracks}
                   onPickFolder={() => void library.pickFolder()}
                   onPickFiles={() => void library.pickFiles()}
                   isScanning={library.isScanning}
                   isRunningBatch={library.isRunningBatch}
+                  batchAction={library.batchAction}
                   isResumedSession={library.isResumedSession}
                 />
 

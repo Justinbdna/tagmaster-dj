@@ -95,6 +95,8 @@ pub struct AudioTrackItem {
     pub exported_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_artwork_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_artwork_path: Option<String>,
     pub review_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<TrackCandidate>,
@@ -242,12 +244,28 @@ pub struct BatchSummary {
     pub needs_review_count: usize,
     pub failed_count: usize,
     pub export_directory: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_exported_path: Option<String>,
     #[serde(default)]
     pub interrupted_by_network: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_error_message: Option<String>,
     #[serde(default)]
     pub remaining_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtworkExtractInput {
+    pub id: String,
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackEmbeddedArtwork {
+    pub track_id: String,
+    pub embedded_artwork_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

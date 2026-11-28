@@ -29,6 +29,7 @@ struct DeezerSearchResponse {
 struct DeezerTrack {
     title: Option<String>,
     duration: Option<u64>,
+    bpm: Option<f32>,
     track_position: Option<u32>,
     disk_number: Option<u32>,
     artist: Option<DeezerArtist>,
@@ -105,6 +106,20 @@ fn extract_year(date: Option<&str>) -> Option<u32> {
         .parse::<u32>()
         .ok()
         .filter(|y| (1900..=2100).contains(y))
+}
+
+/// Convertit un champ BPM Deezer (ex. `116.0` ou `0.0`) en entier valide `u16` (20..=300).
+pub fn parse_valid_bpm(raw: Option<f32>) -> Option<u16> {
+    let val = raw?;
+    if !val.is_finite() || val <= 0.0 {
+        return None;
+    }
+    let rounded = val.round() as i32;
+    if (20..=300).contains(&rounded) {
+        Some(rounded as u16)
+    } else {
+        None
+    }
 }
 
 fn score_candidate(query: &str, artist: &str, title: &str) -> f32 {
@@ -211,6 +226,7 @@ pub fn parse_deezer_search_json(
                 source: Some(MetadataSource::Deezer),
                 platform: Some("Deezer".to_string()),
                 duration_secs: track.duration.filter(|&d| d > 0),
+                bpm: parse_valid_bpm(track.bpm),
             },
         ));
     }
@@ -307,6 +323,7 @@ mod tests {
                 {
                     "title": "Get Lucky (feat. Pharrell Williams)",
                     "duration": 248,
+                    "bpm": 116.2,
                     "track_position": 8,
                     "disk_number": 1,
                     "artist": { "name": "Daft Punk" },
@@ -330,6 +347,9 @@ mod tests {
         assert_eq!(cand.album, "Random Access Memories");
         assert_eq!(cand.year, Some(2013));
         assert_eq!(cand.duration_secs, Some(248));
+        assert_eq!(cand.bpm, Some(116));
+        assert_eq!(parse_valid_bpm(Some(0.0)), None);
+        assert_eq!(parse_valid_bpm(Some(999.0)), None);
         assert_eq!(cand.source, Some(MetadataSource::Deezer));
         assert_eq!(cand.platform.as_deref(), Some("Deezer"));
         assert!(cand.artwork_url.as_deref().unwrap().contains("1000x1000"));

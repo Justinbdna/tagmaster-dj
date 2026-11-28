@@ -42,6 +42,7 @@ export interface TrackMetadata {
   source?: MetadataSource;
   lyrics?: string;
   syncedLyrics?: string;
+  bpm?: number;
 }
 
 export interface AudioTrackItem {
@@ -79,6 +80,7 @@ export interface ExistingTrackTags {
   tagCount: number;
   hasDirtyTags: boolean;
   embeddedArtworkPath?: string;
+  bpm?: number;
 }
 
 export type LookupStatus = "matched" | "protected_version" | "not_found";
@@ -101,6 +103,7 @@ export interface TrackCandidate {
   source?: MetadataSource;
   platform?: string;
   durationSecs?: number;
+  bpm?: number;
 }
 
 export type QuickSearchSource =
@@ -168,12 +171,14 @@ export interface ManualExportInput {
   exportMode: ExportMode;
   formatMode?: ExportFormatMode;
   hardwareProfile?: HardwareProfile;
+  exportDir?: string;
   title: string;
   artist: string;
   albumArtist?: string;
   album?: string;
   year?: number;
   genre?: string;
+  bpm?: number;
   trackNumber?: number;
   trackTotal?: number;
   discNumber?: number;
@@ -215,6 +220,7 @@ export interface SessionCache {
   version: number;
   updatedAtMs: number;
   exportMode: ExportMode;
+  exportDir?: string;
   tracks: AudioTrackItem[];
 }
 

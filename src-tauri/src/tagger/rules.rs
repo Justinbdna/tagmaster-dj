@@ -749,6 +749,7 @@ pub fn normalize_track_metadata(raw: RawMetadataInput) -> TrackMetadata {
         source: Some(raw.source),
         lyrics: None,
         synced_lyrics: None,
+        bpm: None,
     }
 }
 

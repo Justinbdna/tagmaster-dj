@@ -188,6 +188,7 @@ pub fn parse_discogs_json(json: &str, query: &str) -> Result<Vec<TrackCandidate>
             source: Some(MetadataSource::Discogs),
             platform: Some("Discogs".to_string()),
             duration_secs: None,
+            bpm: None,
         });
     }
 

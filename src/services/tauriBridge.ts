@@ -81,17 +81,37 @@ export async function runBatchPipeline(
   exportMode: ExportMode,
   formatMode?: ExportFormatMode,
   hardwareProfile?: HardwareProfile,
+  exportDir?: string | null,
 ): Promise<BatchSummary> {
   return invoke<BatchSummary>("run_batch_pipeline", {
     tracks,
     exportMode,
     formatMode,
     hardwareProfile,
+    exportDir: exportDir || undefined,
   });
 }
 
-export async function openExportDirectory(): Promise<string> {
-  return invoke<string>("open_export_directory");
+export async function getDefaultExportDirectory(): Promise<string> {
+  return invoke<string>("get_default_export_directory");
+}
+
+export async function openExportDirectory(
+  exportDir?: string | null,
+): Promise<string> {
+  return invoke<string>("open_export_directory", {
+    exportDir: exportDir || undefined,
+  });
+}
+
+export async function openExportDirectoryDialog(): Promise<string | null> {
+  const result = await open({
+    directory: true,
+    multiple: false,
+    title: "Choisir le dossier de destination des exports",
+  });
+  const normalized = normalizeDialogResult(result);
+  return normalized[0] ?? null;
 }
 
 export async function revealInFileManager(path: string): Promise<void> {

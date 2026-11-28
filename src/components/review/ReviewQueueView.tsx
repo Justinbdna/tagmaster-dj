@@ -48,6 +48,7 @@ interface ReviewQueueViewProps {
   exportMode: ExportMode;
   formatMode: ExportFormatMode;
   hardwareProfile: HardwareProfile;
+  exportDir?: string | null;
   onTrackValidated: (
     trackId: string,
     metadata: TrackMetadata,
@@ -70,6 +71,7 @@ interface ManualFormState {
   genre: string;
   trackNumber: string;
   discNumber: string;
+  bpm: string;
   artworkUrl: string;
   localArtworkPath: string;
 }
@@ -210,6 +212,7 @@ function emptyFormForTrack(track: AudioTrackItem): ManualFormState {
     genre: "",
     trackNumber: "",
     discNumber: "",
+    bpm: "",
     artworkUrl: "",
     localArtworkPath: "",
   };
@@ -260,6 +263,7 @@ function candidateToMetadata(candidate: TrackCandidate): TrackMetadata {
     artworkUrl: candidate.artworkUrl,
     isCompilation: candidate.isCompilation,
     source: candidate.source ?? "apple_music",
+    bpm: candidate.bpm,
   };
 }
 
@@ -280,6 +284,7 @@ export function ReviewQueueView({
   exportMode,
   formatMode,
   hardwareProfile,
+  exportDir,
   onTrackValidated,
   onTrackResolved,
   onBackToLibrary,
@@ -321,6 +326,7 @@ export function ReviewQueueView({
     genre: "",
     trackNumber: "",
     discNumber: "",
+    bpm: "",
     artworkUrl: "",
     localArtworkPath: "",
   });
@@ -435,6 +441,7 @@ export function ReviewQueueView({
         discNumber: existingMeta.discNumber
           ? String(existingMeta.discNumber)
           : "",
+        bpm: existingMeta.bpm ? String(existingMeta.bpm) : "",
         artworkUrl: existingMeta.artworkUrl ?? "",
         localArtworkPath: activeTrack.localArtworkPath ?? "",
       });
@@ -500,6 +507,7 @@ export function ReviewQueueView({
               existing.artist?.trim() ||
               prev.albumArtist,
             album: existing.album?.trim() || prev.album,
+            bpm: existing.bpm ? String(existing.bpm) : prev.bpm,
             localArtworkPath: nextLocal,
           };
         });
@@ -598,12 +606,14 @@ export function ReviewQueueView({
         exportMode,
         formatMode,
         hardwareProfile,
+        exportDir: exportDir || undefined,
         title: candidate.title,
         artist: candidate.artist,
         albumArtist: candidate.albumArtist,
         album: candidate.album,
         year: candidate.year,
         genre: candidate.genre,
+        bpm: candidate.bpm,
         trackNumber: candidate.trackNumber,
         trackTotal: candidate.trackTotal,
         discNumber: candidate.discNumber,
@@ -646,6 +656,7 @@ export function ReviewQueueView({
       genre: candidate.genre ?? "",
       trackNumber: candidate.trackNumber ? String(candidate.trackNumber) : "",
       discNumber: candidate.discNumber ? String(candidate.discNumber) : "",
+      bpm: candidate.bpm ? String(candidate.bpm) : "",
       artworkUrl: candidate.artworkUrl ?? "",
       localArtworkPath: "",
     });
@@ -825,6 +836,7 @@ export function ReviewQueueView({
       genre: form.genre.trim() || undefined,
       trackNumber: parseOptionalInt(form.trackNumber),
       discNumber: parseOptionalInt(form.discNumber),
+      bpm: parseOptionalInt(form.bpm),
       artworkUrl: form.localArtworkPath
         ? undefined
         : form.artworkUrl.trim() || undefined,
@@ -864,12 +876,14 @@ export function ReviewQueueView({
         exportMode,
         formatMode,
         hardwareProfile,
+        exportDir: exportDir || undefined,
         title,
         artist,
         albumArtist: form.albumArtist.trim() || artist,
         album: form.album.trim() || undefined,
         year: parseOptionalInt(form.year),
         genre: form.genre.trim() || undefined,
+        bpm: parseOptionalInt(form.bpm),
         trackNumber: parseOptionalInt(form.trackNumber),
         discNumber: parseOptionalInt(form.discNumber),
         artworkUrl: form.localArtworkPath
@@ -1436,7 +1450,7 @@ export function ReviewQueueView({
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <label className="flex flex-col gap-1">
                   <span className="text-[11px] font-medium text-secondary">
                     N° de piste
@@ -1470,6 +1484,26 @@ export function ReviewQueueView({
                       }))
                     }
                     className="rounded-[12px] border border-[var(--content-border)] bg-[var(--content-bg)] px-3 py-2 text-[12.5px] text-primary focus:border-sky-400/60 focus:outline-none"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-medium text-secondary">
+                    BPM
+                  </span>
+                  <input
+                    type="number"
+                    min={20}
+                    max={300}
+                    value={form.bpm}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        bpm: e.target.value,
+                      }))
+                    }
+                    placeholder="120"
+                    className="rounded-[12px] border border-[var(--content-border)] bg-[var(--content-bg)] px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:border-sky-400/60 focus:outline-none"
                   />
                 </label>
               </div>

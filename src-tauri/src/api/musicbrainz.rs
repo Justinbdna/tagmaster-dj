@@ -236,6 +236,7 @@ pub fn parse_musicbrainz_json(json: &str, query: &str) -> Result<Vec<TrackCandid
             source: Some(MetadataSource::MusicBrainz),
             platform: Some("MusicBrainz".to_string()),
             duration_secs,
+            bpm: None,
         });
     }
 

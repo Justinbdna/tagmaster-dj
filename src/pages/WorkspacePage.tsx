@@ -22,7 +22,9 @@ import { useTheme } from "../hooks/useTheme";
 import { useTrackLibrary } from "../hooks/useTrackLibrary";
 import {
   checkRuntimeDependencies,
+  getDefaultExportDirectory,
   isTauriEnvironment,
+  openExportDirectoryDialog,
 } from "../services/tauriBridge";
 import type {
   AppView,
@@ -36,10 +38,20 @@ import type {
 
 const FORMAT_STORAGE_KEY = "tagmaster_dj_format_mode";
 const PROFILE_STORAGE_KEY = "tagmaster_dj_hardware_profile";
+const EXPORT_DIR_STORAGE_KEY = "tagmaster_dj_export_dir";
 
 export function WorkspacePage() {
   const [activeView, setActiveView] = useState<AppView>("library");
   const [exportMode, setExportMode] = useState<ExportMode>("dynamic");
+  const [customExportDir, setCustomExportDirState] = useState<string | null>(
+    () => {
+      const saved = window.localStorage.getItem(EXPORT_DIR_STORAGE_KEY)?.trim();
+      return saved ? saved : null;
+    },
+  );
+  const [defaultExportDir, setDefaultExportDir] = useState<string>(
+    "Documents/Tagmaster_DJ_Export",
+  );
   const [formatMode, setFormatModeState] = useState<ExportFormatMode>(() => {
     const saved = window.localStorage.getItem(FORMAT_STORAGE_KEY);
     return saved === "force_mp3" ? "force_mp3" : "passthrough";
@@ -72,9 +84,26 @@ export function WorkspacePage() {
       .catch(() => {
         // Non-blocking startup diagnostic
       });
+    getDefaultExportDirectory()
+      .then((dir) => {
+        if (active && dir.trim()) setDefaultExportDir(dir);
+      })
+      .catch(() => {
+        // Fallback label already set
+      });
     return () => {
       active = false;
     };
+  }, []);
+
+  const setCustomExportDir = useCallback((dir: string | null) => {
+    const cleaned = dir?.trim() ? dir.trim() : null;
+    setCustomExportDirState(cleaned);
+    if (cleaned) {
+      window.localStorage.setItem(EXPORT_DIR_STORAGE_KEY, cleaned);
+    } else {
+      window.localStorage.removeItem(EXPORT_DIR_STORAGE_KEY);
+    }
   }, []);
 
   const setFormatMode = useCallback((mode: ExportFormatMode) => {
@@ -87,6 +116,8 @@ export function WorkspacePage() {
     window.localStorage.setItem(PROFILE_STORAGE_KEY, profile);
   }, []);
 
+  const activeExportDir = customExportDir ?? defaultExportDir;
+
   const { health } = useAppHealth();
   const { theme, setTheme, toggleTheme, glassTint, setGlassTint } = useTheme();
   const library = useTrackLibrary(
@@ -94,6 +125,8 @@ export function WorkspacePage() {
     setExportMode,
     formatMode,
     hardwareProfile,
+    customExportDir,
+    setCustomExportDir,
   );
 
   const isFocusMode = activeView === "review" || activeView === "duplicates";
@@ -126,6 +159,24 @@ export function WorkspacePage() {
     }),
     [library.openExportFolder, library.revealExportedFile],
   );
+
+  const handlePickExportDir = useCallback(async () => {
+    if (!isTauriEnvironment()) return;
+    try {
+      const picked = await openExportDirectoryDialog();
+      if (picked) {
+        setCustomExportDir(picked);
+        showToast("Dossier d'export mis à jour");
+      }
+    } catch {
+      // Ignore canceled dialog
+    }
+  }, [setCustomExportDir, showToast]);
+
+  const handleResetExportDir = useCallback(() => {
+    setCustomExportDir(null);
+    showToast("Dossier d'export réinitialisé par défaut");
+  }, [setCustomExportDir, showToast]);
 
   const handleLookupTrack = useCallback(
     (id: string) => {
@@ -366,6 +417,7 @@ export function WorkspacePage() {
           reviewCount={library.reviewCount}
           duplicateGroupCount={library.duplicateGroups.length}
           health={health}
+          exportDirPath={activeExportDir}
           onOpenExportFolder={() => void library.openExportFolder()}
         />
       )}
@@ -468,6 +520,7 @@ export function WorkspacePage() {
             exportMode={exportMode}
             formatMode={formatMode}
             hardwareProfile={hardwareProfile}
+            exportDir={customExportDir}
             onTrackValidated={handleTrackValidatedFromReview}
             onTrackResolved={handleTrackResolvedFromReview}
             onBackToLibrary={() => {
@@ -502,6 +555,11 @@ export function WorkspacePage() {
             onSelectGlassTint={setGlassTint}
             exportMode={exportMode}
             onSelectExportMode={setExportMode}
+            exportDirPath={activeExportDir}
+            isCustomExportDir={customExportDir !== null}
+            onPickExportDir={() => void handlePickExportDir()}
+            onResetExportDir={handleResetExportDir}
+            onOpenExportFolder={() => void library.openExportFolder()}
             formatMode={formatMode}
             onSelectFormatMode={setFormatMode}
             hardwareProfile={hardwareProfile}

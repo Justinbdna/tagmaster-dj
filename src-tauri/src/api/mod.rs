@@ -324,6 +324,7 @@ mod tests {
             source: Some(MetadataSource::YtDlp),
             platform: Some("YouTube".to_string()),
             duration_secs: Some(633),
+            bpm: None,
         }
     }
 

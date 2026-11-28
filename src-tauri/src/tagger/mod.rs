@@ -17,6 +17,7 @@ use lofty::id3::v2::{
     BinaryFrame, Frame, FrameId, Id3v2Tag, SyncTextContentType, SynchronizedTextFrame,
     TimestampFormat,
 };
+use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use lofty::probe::Probe;
@@ -262,6 +263,7 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
     let mut artist = None;
     let mut album_artist = None;
     let mut album = None;
+    let mut bpm: Option<u16> = None;
     let mut embedded_picture: Option<&Picture> = None;
 
     for tag in primary.into_iter().chain(all_tags.iter()) {
@@ -277,6 +279,15 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
         if album.is_none() {
             album = non_blank(tag.album().map(|s| s.into_owned()));
         }
+        if bpm.is_none() {
+            bpm = tag
+                .get_string(ItemKey::Bpm)
+                .or_else(|| tag.get_string(ItemKey::IntegerBpm))
+                .and_then(|raw| raw.trim().parse::<f32>().ok())
+                .map(|v| v.round() as i32)
+                .filter(|&v| (20..=300).contains(&v))
+                .map(|v| v as u16);
+        }
         if embedded_picture.is_none() {
             embedded_picture = tag
                 .pictures()
@@ -288,10 +299,28 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
             && artist.is_some()
             && album_artist.is_some()
             && album.is_some()
+            && bpm.is_some()
             && embedded_picture.is_some()
         {
             break;
         }
+    }
+
+    if bpm.is_none()
+        && tagged_file.file_type() == lofty::file::FileType::Mp4
+        && let Ok(mut file) = std::fs::File::open(path)
+        && let Ok(mp4) = lofty::mp4::Mp4File::read_from(
+            &mut file,
+            ParseOptions::new().read_properties(false),
+        )
+        && let Some(ilst) = mp4.ilst()
+        && let Some(atom) = ilst.get(&AtomIdent::Fourcc(*b"tmpo"))
+    {
+        bpm = atom.data().find_map(|d| match d {
+            AtomData::SignedInteger(v) if (20..=300).contains(v) => Some(*v as u16),
+            AtomData::UnsignedInteger(v) if (20..=300).contains(v) => Some(*v as u16),
+            _ => None,
+        });
     }
 
     let embedded_artwork_path =
@@ -305,6 +334,7 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
         tag_count,
         has_dirty_tags,
         embedded_artwork_path,
+        bpm,
     })
 }
 
@@ -393,6 +423,17 @@ pub fn write_clean_tags_for_profile(
         tag.insert_text(ItemKey::Year, year.to_string());
     }
 
+    if let Some(bpm) = metadata.bpm
+        && bpm > 0
+        && primary_type != TagType::Mp4Ilst
+    {
+        let bpm_key = match primary_type {
+            TagType::Id3v2 => ItemKey::IntegerBpm,
+            _ => ItemKey::Bpm,
+        };
+        tag.insert_text(bpm_key, bpm.to_string());
+    }
+
     if metadata.is_compilation {
         tag.insert_text(ItemKey::FlagCompilation, "1".to_string());
     }
@@ -479,6 +520,26 @@ pub fn write_clean_tags_for_profile(
         } else if let Some(best_lyrics) = synced_raw.map(str::to_string).or(plain_lyrics) {
             tag.insert_text(ItemKey::Lyrics, best_lyrics);
         }
+    }
+
+    if primary_type == TagType::Mp4Ilst {
+        let mut ilst: Ilst = tag.into();
+        if let Some(bpm) = metadata.bpm
+            && bpm > 0
+        {
+            // L'atome MP4 `tmpo` doit être encodé en entier signé big-endian (DataType 21),
+            // jamais en chaîne UTF-8, pour être lu par Apple Music, ffprobe et les logiciels DJ.
+            ilst.insert(Atom::new(
+                AtomIdent::Fourcc(*b"tmpo"),
+                AtomData::SignedInteger(i32::from(bpm)),
+            ));
+        }
+        return ilst.save_to_path(target_path, write_opts).map_err(|err| {
+            format!(
+                "Impossible d'écrire les nouveaux tags MP4/M4A sur {} : {err}",
+                target_path.display()
+            )
+        });
     }
 
     tag.save_to_path(target_path, write_opts).map_err(|err| {
@@ -611,6 +672,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: None,
             synced_lyrics: None,
+            bpm: Some(128),
         };
 
         let fake_jpeg = DownloadedArtwork {
@@ -710,6 +772,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: Some("[Couplet 1]\nT mimi comme tout".to_string()),
             synced_lyrics: None,
+            bpm: None,
         };
 
         write_clean_tags(&mp3_path, &meta, None).expect("write_clean_tags with lyrics should pass");
@@ -752,6 +815,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: Some("Première ligne\nDeuxième ligne".to_string()),
             synced_lyrics: Some(lrc.to_string()),
+            bpm: None,
         };
 
         let fake_jpeg = DownloadedArtwork {
@@ -875,5 +939,139 @@ mod tests {
         assert!(!orphan_cover.exists());
 
         let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    #[test]
+    fn writes_standard_tbpm_tag_when_bpm_is_positive_and_skips_zero() {
+        let mp3_path = create_minimal_valid_mp3();
+        let meta_with_bpm = TrackMetadata {
+            title: "Get Lucky".to_string(),
+            artist: "Daft Punk".to_string(),
+            album_artist: "Daft Punk".to_string(),
+            album: "Random Access Memories".to_string(),
+            track_number: Some(8),
+            track_total: Some(13),
+            disc_number: Some(1),
+            disc_total: Some(1),
+            year: Some(2013),
+            genre: Some("Electronic".to_string()),
+            artwork_url: None,
+            is_compilation: false,
+            source: Some(MetadataSource::Deezer),
+            lyrics: None,
+            synced_lyrics: None,
+            bpm: Some(116),
+        };
+
+        write_clean_tags(&mp3_path, &meta_with_bpm, None)
+            .expect("write_clean_tags with BPM should succeed");
+
+        let reread = Probe::open(&mp3_path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let primary = reread.primary_tag().expect("primary ID3v2 tag expected");
+        assert_eq!(primary.get_string(ItemKey::IntegerBpm), Some("116"));
+
+        let existing = read_existing_tags(&mp3_path).expect("read_existing_tags should parse bpm");
+        assert_eq!(existing.bpm, Some(116));
+
+        // Un BPM à 0 ne doit pas écrire de frame TBPM vide/invalide
+        let mut meta_zero_bpm = meta_with_bpm;
+        meta_zero_bpm.bpm = Some(0);
+        write_clean_tags(&mp3_path, &meta_zero_bpm, None)
+            .expect("write_clean_tags with 0 BPM should succeed");
+        let reread_zero = Probe::open(&mp3_path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let primary_zero = reread_zero.primary_tag().expect("primary ID3v2 tag expected");
+        assert_eq!(primary_zero.get_string(ItemKey::IntegerBpm), None);
+        assert_eq!(primary_zero.get_string(ItemKey::Bpm), None);
+
+        let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn writes_standard_tmpo_integer_atom_on_m4a() {
+        let Some(ffmpeg_bin) = crate::ffmpeg::resolve_ffmpeg_binary() else {
+            return;
+        };
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let m4a_path = std::env::temp_dir().join(format!(
+            "tagmaster_dj_m4a_bpm_test_{}_{}.m4a",
+            std::process::id(),
+            nanos
+        ));
+
+        let status = std::process::Command::new(&ffmpeg_bin)
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=stereo",
+                "-t",
+                "0.2",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+            ])
+            .arg(&m4a_path)
+            .output()
+            .expect("generate synthetic m4a with ffmpeg");
+        assert!(
+            status.status.success(),
+            "ffmpeg should generate a valid synthetic m4a"
+        );
+
+        let meta = TrackMetadata {
+            title: "Coconuts".to_string(),
+            artist: "Kim Petras".to_string(),
+            album_artist: "Kim Petras".to_string(),
+            album: "Feed The Beast".to_string(),
+            track_number: Some(4),
+            track_total: Some(15),
+            disc_number: Some(1),
+            disc_total: Some(1),
+            year: Some(2023),
+            genre: Some("Pop".to_string()),
+            artwork_url: None,
+            is_compilation: false,
+            source: Some(MetadataSource::Manual),
+            lyrics: None,
+            synced_lyrics: None,
+            bpm: Some(128),
+        };
+
+        write_clean_tags(&m4a_path, &meta, None)
+            .expect("write_clean_tags on M4A with BPM should succeed");
+
+        // 1. Vérifier l'atome binaire `tmpo` au format SignedInteger dans le conteneur MP4
+        let mut file = fs::File::open(&m4a_path).expect("open tagged m4a");
+        let mp4 = lofty::mp4::Mp4File::read_from(&mut file, ParseOptions::new())
+            .expect("parse tagged m4a");
+        let ilst = mp4.ilst().expect("MP4 ilst tag expected");
+        let tmpo_atom = ilst
+            .get(&AtomIdent::Fourcc(*b"tmpo"))
+            .expect("tmpo atom expected in MP4 ilst");
+        assert_eq!(tmpo_atom.data().next(), Some(&AtomData::SignedInteger(128)));
+
+        // 2. Vérifier la relecture via read_existing_tags
+        let existing = read_existing_tags(&m4a_path).expect("read_existing_tags on M4A");
+        assert_eq!(existing.bpm, Some(128));
+        assert_eq!(existing.title.as_deref(), Some("Coconuts"));
+        assert_eq!(existing.artist.as_deref(), Some("Kim Petras"));
+
+        let _ = fs::remove_file(&m4a_path);
     }
 }

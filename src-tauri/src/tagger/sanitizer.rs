@@ -231,6 +231,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: Some("Paroles test".to_string()),
             synced_lyrics: Some("[00:01.00] Paroles test".to_string()),
+            bpm: Some(122),
         };
 
         let psp = sanitize_metadata_for_profile(&meta, &HardwareProfile::Psp);

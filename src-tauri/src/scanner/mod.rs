@@ -81,6 +81,7 @@ fn build_track_item(path: &Path, extension: String) -> Option<AudioTrackItem> {
         metadata: None,
         exported_path: None,
         local_artwork_path: None,
+        embedded_artwork_path: None,
         review_reason: None,
         candidates: Vec::new(),
         last_query_used: None,

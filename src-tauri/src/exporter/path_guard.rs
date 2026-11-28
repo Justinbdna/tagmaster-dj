@@ -238,6 +238,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: None,
             synced_lyrics: None,
+            bpm: None,
         }
     }
 

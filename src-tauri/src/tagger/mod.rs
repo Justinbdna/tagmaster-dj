@@ -8,14 +8,16 @@ pub mod rules;
 pub mod sanitizer;
 
 use std::borrow::Cow;
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use lofty::TextEncoding;
-use lofty::config::WriteOptions;
+use lofty::config::{ParseOptions, WriteOptions};
 use lofty::id3::v2::{
     BinaryFrame, Frame, FrameId, Id3v2Tag, SyncTextContentType, SynchronizedTextFrame,
     TimestampFormat,
 };
+use lofty::mp4::{Atom, AtomData, AtomIdent, Ilst};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
 use lofty::probe::Probe;
@@ -46,6 +48,132 @@ fn fnv1a_64(data: &[u8]) -> u64 {
     hash
 }
 
+pub const EMBEDDED_ARTWORK_CACHE_DIR_NAME: &str = "tagmaster-dj-thumbs";
+const LEGACY_EMBEDDED_ARTWORK_CACHE_DIR_NAME: &str = "tagmaster_dj_embedded_covers";
+
+/// Retourne le sous-dossier temporaire dédié aux miniatures de pochettes embarquées.
+pub fn embedded_artwork_cache_dir() -> PathBuf {
+    std::env::temp_dir().join(EMBEDDED_ARTWORK_CACHE_DIR_NAME)
+}
+
+/// Purge l'intégralité des miniatures stockées dans le dossier donné.
+pub fn clear_embedded_artwork_cache_in(dir: &Path) -> Result<usize, String> {
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+
+    let entries = std::fs::read_dir(dir).map_err(|err| {
+        format!(
+            "Impossible de lire le cache de miniatures {} : {err}",
+            dir.display()
+        )
+    })?;
+
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+
+    Ok(removed)
+}
+
+/// Purge toutes les miniatures temporaires du cache (y compris l'ancien dossier legacy si présent).
+pub fn clear_embedded_artwork_cache() -> Result<usize, String> {
+    let dir = embedded_artwork_cache_dir();
+    let removed = clear_embedded_artwork_cache_in(&dir)?;
+
+    let legacy_dir = std::env::temp_dir().join(LEGACY_EMBEDDED_ARTWORK_CACHE_DIR_NAME);
+    if legacy_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&legacy_dir);
+    }
+
+    Ok(removed)
+}
+
+/// Supprime une miniature ciblée uniquement si elle se trouve bien dans `dir`
+/// (protection contre toute suppression hors du cache temporaire).
+pub fn remove_embedded_artwork_file_in(dir: &Path, raw_path: &str) -> bool {
+    let trimmed = raw_path.trim();
+    if trimmed.is_empty() || !dir.is_dir() {
+        return false;
+    }
+
+    let target = PathBuf::from(trimmed);
+    if !target.is_file() {
+        return false;
+    }
+
+    let Ok(canon_dir) = std::fs::canonicalize(dir) else {
+        return false;
+    };
+    let Ok(canon_target) = std::fs::canonicalize(&target) else {
+        return false;
+    };
+
+    if !canon_target.starts_with(&canon_dir) {
+        return false;
+    }
+
+    std::fs::remove_file(&canon_target).is_ok()
+}
+
+/// Supprime les miniatures temporaires associées aux pistes retirées de la file.
+pub fn remove_embedded_artwork_files(paths: &[String]) -> usize {
+    let dir = embedded_artwork_cache_dir();
+    paths
+        .iter()
+        .filter(|p| remove_embedded_artwork_file_in(&dir, p))
+        .count()
+}
+
+/// Supprime les miniatures orphelines dans `dir` qui ne sont référencées par aucune piste active.
+pub fn cleanup_orphan_embedded_artworks_in(dir: &Path, active_paths: &HashSet<PathBuf>) -> usize {
+    if !dir.is_dir() {
+        return 0;
+    }
+
+    let active_canonical: HashSet<PathBuf> = active_paths
+        .iter()
+        .filter_map(|p| std::fs::canonicalize(p).ok())
+        .collect();
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_active = std::fs::canonicalize(&path)
+            .ok()
+            .is_some_and(|canon| active_canonical.contains(&canon));
+        if !is_active && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+
+    removed
+}
+
+/// Nettoie au démarrage les miniatures orphelines en préservant celles d'une session active.
+pub fn cleanup_orphan_embedded_artworks(active_paths: &HashSet<PathBuf>) -> usize {
+    let dir = embedded_artwork_cache_dir();
+    let removed = cleanup_orphan_embedded_artworks_in(&dir, active_paths);
+
+    let legacy_dir = std::env::temp_dir().join(LEGACY_EMBEDDED_ARTWORK_CACHE_DIR_NAME);
+    if legacy_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&legacy_dir);
+    }
+
+    removed
+}
+
 fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Option<String> {
     let data = picture.data();
     if data.is_empty() {
@@ -66,7 +194,7 @@ fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Op
         _ => "jpg",
     };
 
-    let cache_dir = std::env::temp_dir().join("tagmaster_dj_embedded_covers");
+    let cache_dir = embedded_artwork_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok()?;
     let dest_path = cache_dir.join(format!("cover_{hash:016x}.{ext}"));
 
@@ -75,6 +203,32 @@ fn extract_embedded_artwork_to_temp(source_path: &Path, picture: &Picture) -> Op
     }
 
     Some(dest_path.to_string_lossy().into_owned())
+}
+
+/// Extraction rapide en lecture seule de la pochette intégrée d'un fichier audio
+/// (ignore le décodage des frames audio via `read_properties(false)` pour rester fluide sur 3 000+ pistes).
+pub fn extract_embedded_artwork_fast(path: &Path) -> Option<String> {
+    let tagged_file = Probe::open(path)
+        .ok()?
+        .options(ParseOptions::new().read_properties(false))
+        .guess_file_type()
+        .ok()?
+        .read()
+        .ok()?;
+
+    let primary = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
+    for tag in primary.into_iter().chain(tagged_file.tags().iter()) {
+        if let Some(pic) = tag
+            .pictures()
+            .iter()
+            .find(|p| p.pic_type() == PictureType::CoverFront && !p.data().is_empty())
+            .or_else(|| tag.pictures().iter().find(|p| !p.data().is_empty()))
+        {
+            return extract_embedded_artwork_to_temp(path, pic);
+        }
+    }
+
+    None
 }
 
 /// Lecture seule des tags existants sur un fichier source (ne modifie jamais le fichier).
@@ -109,6 +263,7 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
     let mut artist = None;
     let mut album_artist = None;
     let mut album = None;
+    let mut bpm: Option<u16> = None;
     let mut embedded_picture: Option<&Picture> = None;
 
     for tag in primary.into_iter().chain(all_tags.iter()) {
@@ -124,6 +279,15 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
         if album.is_none() {
             album = non_blank(tag.album().map(|s| s.into_owned()));
         }
+        if bpm.is_none() {
+            bpm = tag
+                .get_string(ItemKey::Bpm)
+                .or_else(|| tag.get_string(ItemKey::IntegerBpm))
+                .and_then(|raw| raw.trim().parse::<f32>().ok())
+                .map(|v| v.round() as i32)
+                .filter(|&v| (20..=300).contains(&v))
+                .map(|v| v as u16);
+        }
         if embedded_picture.is_none() {
             embedded_picture = tag
                 .pictures()
@@ -135,10 +299,28 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
             && artist.is_some()
             && album_artist.is_some()
             && album.is_some()
+            && bpm.is_some()
             && embedded_picture.is_some()
         {
             break;
         }
+    }
+
+    if bpm.is_none()
+        && tagged_file.file_type() == lofty::file::FileType::Mp4
+        && let Ok(mut file) = std::fs::File::open(path)
+        && let Ok(mp4) = lofty::mp4::Mp4File::read_from(
+            &mut file,
+            ParseOptions::new().read_properties(false),
+        )
+        && let Some(ilst) = mp4.ilst()
+        && let Some(atom) = ilst.get(&AtomIdent::Fourcc(*b"tmpo"))
+    {
+        bpm = atom.data().find_map(|d| match d {
+            AtomData::SignedInteger(v) if (20..=300).contains(v) => Some(*v as u16),
+            AtomData::UnsignedInteger(v) if (20..=300).contains(v) => Some(*v as u16),
+            _ => None,
+        });
     }
 
     let embedded_artwork_path =
@@ -152,6 +334,7 @@ pub fn read_existing_tags(path: &Path) -> Result<ExistingTrackTags, String> {
         tag_count,
         has_dirty_tags,
         embedded_artwork_path,
+        bpm,
     })
 }
 
@@ -238,6 +421,17 @@ pub fn write_clean_tags_for_profile(
 
     if let Some(year) = metadata.year {
         tag.insert_text(ItemKey::Year, year.to_string());
+    }
+
+    if let Some(bpm) = metadata.bpm
+        && bpm > 0
+        && primary_type != TagType::Mp4Ilst
+    {
+        let bpm_key = match primary_type {
+            TagType::Id3v2 => ItemKey::IntegerBpm,
+            _ => ItemKey::Bpm,
+        };
+        tag.insert_text(bpm_key, bpm.to_string());
     }
 
     if metadata.is_compilation {
@@ -328,6 +522,26 @@ pub fn write_clean_tags_for_profile(
         }
     }
 
+    if primary_type == TagType::Mp4Ilst {
+        let mut ilst: Ilst = tag.into();
+        if let Some(bpm) = metadata.bpm
+            && bpm > 0
+        {
+            // L'atome MP4 `tmpo` doit être encodé en entier signé big-endian (DataType 21),
+            // jamais en chaîne UTF-8, pour être lu par Apple Music, ffprobe et les logiciels DJ.
+            ilst.insert(Atom::new(
+                AtomIdent::Fourcc(*b"tmpo"),
+                AtomData::SignedInteger(i32::from(bpm)),
+            ));
+        }
+        return ilst.save_to_path(target_path, write_opts).map_err(|err| {
+            format!(
+                "Impossible d'écrire les nouveaux tags MP4/M4A sur {} : {err}",
+                target_path.display()
+            )
+        });
+    }
+
     tag.save_to_path(target_path, write_opts).map_err(|err| {
         format!(
             "Impossible d'écrire les nouveaux tags sur {} : {err}",
@@ -386,11 +600,19 @@ mod tests {
     /// Construit un fichier MP3 minimal valide (frames MPEG-1 Layer III 128kbps 44.1kHz)
     /// pour tester la lecture, la Table Rase et la réécriture complète via `lofty`.
     fn create_minimal_valid_mp3() -> PathBuf {
+        static TEST_COUNTER: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let seq = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock error")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("tagmaster_dj_tag_test_{nanos}.mp3"));
+        let path = std::env::temp_dir().join(format!(
+            "tagmaster_dj_tag_test_{}_{}_{}.mp3",
+            std::process::id(),
+            nanos,
+            seq
+        ));
 
         // Header MPEG1 Layer III, no CRC, 128 kbps (0x90), 44100 Hz (0x00), Joint Stereo (0x64)
         // Taille d'une frame : floor(144 * 128000 / 44100) = 417 bytes
@@ -450,6 +672,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: None,
             synced_lyrics: None,
+            bpm: Some(128),
         };
 
         let fake_jpeg = DownloadedArtwork {
@@ -549,6 +772,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: Some("[Couplet 1]\nT mimi comme tout".to_string()),
             synced_lyrics: None,
+            bpm: None,
         };
 
         write_clean_tags(&mp3_path, &meta, None).expect("write_clean_tags with lyrics should pass");
@@ -591,6 +815,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: Some("Première ligne\nDeuxième ligne".to_string()),
             synced_lyrics: Some(lrc.to_string()),
+            bpm: None,
         };
 
         let fake_jpeg = DownloadedArtwork {
@@ -636,5 +861,217 @@ mod tests {
         );
 
         let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn clears_embedded_artwork_cache_and_removes_targeted_file_safely() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let cache_dir = std::env::temp_dir().join(format!(
+            "tagmaster_dj_thumbs_test_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        let outside_file = std::env::temp_dir().join(format!(
+            "tagmaster_dj_outside_cover_{}_{}.jpg",
+            std::process::id(),
+            nanos
+        ));
+        fs::create_dir_all(&cache_dir).expect("create temp cache dir");
+
+        let cover_a = cache_dir.join("cover_a.jpg");
+        let cover_b = cache_dir.join("cover_b.png");
+        fs::write(&cover_a, b"jpg-a").expect("write cover_a");
+        fs::write(&cover_b, b"png-b").expect("write cover_b");
+        fs::write(&outside_file, b"user-file").expect("write outside file");
+
+        // Suppression ciblée autorisée uniquement dans le dossier cache
+        assert!(remove_embedded_artwork_file_in(
+            &cache_dir,
+            &cover_a.to_string_lossy()
+        ));
+        assert!(!cover_a.exists());
+        assert!(cover_b.is_file());
+
+        // Refus strict pour tout fichier en dehors du dossier cache
+        assert!(!remove_embedded_artwork_file_in(
+            &cache_dir,
+            &outside_file.to_string_lossy()
+        ));
+        assert!(outside_file.is_file());
+
+        // Purge complète du dossier cache
+        let removed =
+            clear_embedded_artwork_cache_in(&cache_dir).expect("clear cache should succeed");
+        assert_eq!(removed, 1);
+        assert!(!cover_b.exists());
+
+        let _ = fs::remove_dir_all(&cache_dir);
+        let _ = fs::remove_file(&outside_file);
+    }
+
+    #[test]
+    fn cleans_orphan_embedded_artworks_while_preserving_active_session_files() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let cache_dir = std::env::temp_dir().join(format!(
+            "tagmaster_dj_orphans_test_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        fs::create_dir_all(&cache_dir).expect("create temp orphan dir");
+
+        let active_cover = cache_dir.join("cover_active.jpg");
+        let orphan_cover = cache_dir.join("cover_orphan.jpg");
+        fs::write(&active_cover, b"active").expect("write active");
+        fs::write(&orphan_cover, b"orphan").expect("write orphan");
+
+        let mut active_set = HashSet::new();
+        active_set.insert(active_cover.clone());
+
+        let removed = cleanup_orphan_embedded_artworks_in(&cache_dir, &active_set);
+        assert_eq!(removed, 1);
+        assert!(active_cover.is_file());
+        assert!(!orphan_cover.exists());
+
+        let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    #[test]
+    fn writes_standard_tbpm_tag_when_bpm_is_positive_and_skips_zero() {
+        let mp3_path = create_minimal_valid_mp3();
+        let meta_with_bpm = TrackMetadata {
+            title: "Get Lucky".to_string(),
+            artist: "Daft Punk".to_string(),
+            album_artist: "Daft Punk".to_string(),
+            album: "Random Access Memories".to_string(),
+            track_number: Some(8),
+            track_total: Some(13),
+            disc_number: Some(1),
+            disc_total: Some(1),
+            year: Some(2013),
+            genre: Some("Electronic".to_string()),
+            artwork_url: None,
+            is_compilation: false,
+            source: Some(MetadataSource::Deezer),
+            lyrics: None,
+            synced_lyrics: None,
+            bpm: Some(116),
+        };
+
+        write_clean_tags(&mp3_path, &meta_with_bpm, None)
+            .expect("write_clean_tags with BPM should succeed");
+
+        let reread = Probe::open(&mp3_path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let primary = reread.primary_tag().expect("primary ID3v2 tag expected");
+        assert_eq!(primary.get_string(ItemKey::IntegerBpm), Some("116"));
+
+        let existing = read_existing_tags(&mp3_path).expect("read_existing_tags should parse bpm");
+        assert_eq!(existing.bpm, Some(116));
+
+        // Un BPM à 0 ne doit pas écrire de frame TBPM vide/invalide
+        let mut meta_zero_bpm = meta_with_bpm;
+        meta_zero_bpm.bpm = Some(0);
+        write_clean_tags(&mp3_path, &meta_zero_bpm, None)
+            .expect("write_clean_tags with 0 BPM should succeed");
+        let reread_zero = Probe::open(&mp3_path)
+            .unwrap()
+            .guess_file_type()
+            .unwrap()
+            .read()
+            .unwrap();
+        let primary_zero = reread_zero.primary_tag().expect("primary ID3v2 tag expected");
+        assert_eq!(primary_zero.get_string(ItemKey::IntegerBpm), None);
+        assert_eq!(primary_zero.get_string(ItemKey::Bpm), None);
+
+        let _ = fs::remove_file(&mp3_path);
+    }
+
+    #[test]
+    fn writes_standard_tmpo_integer_atom_on_m4a() {
+        let Some(ffmpeg_bin) = crate::ffmpeg::resolve_ffmpeg_binary() else {
+            return;
+        };
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let m4a_path = std::env::temp_dir().join(format!(
+            "tagmaster_dj_m4a_bpm_test_{}_{}.m4a",
+            std::process::id(),
+            nanos
+        ));
+
+        let status = std::process::Command::new(&ffmpeg_bin)
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=stereo",
+                "-t",
+                "0.2",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+            ])
+            .arg(&m4a_path)
+            .output()
+            .expect("generate synthetic m4a with ffmpeg");
+        assert!(
+            status.status.success(),
+            "ffmpeg should generate a valid synthetic m4a"
+        );
+
+        let meta = TrackMetadata {
+            title: "Coconuts".to_string(),
+            artist: "Kim Petras".to_string(),
+            album_artist: "Kim Petras".to_string(),
+            album: "Feed The Beast".to_string(),
+            track_number: Some(4),
+            track_total: Some(15),
+            disc_number: Some(1),
+            disc_total: Some(1),
+            year: Some(2023),
+            genre: Some("Pop".to_string()),
+            artwork_url: None,
+            is_compilation: false,
+            source: Some(MetadataSource::Manual),
+            lyrics: None,
+            synced_lyrics: None,
+            bpm: Some(128),
+        };
+
+        write_clean_tags(&m4a_path, &meta, None)
+            .expect("write_clean_tags on M4A with BPM should succeed");
+
+        // 1. Vérifier l'atome binaire `tmpo` au format SignedInteger dans le conteneur MP4
+        let mut file = fs::File::open(&m4a_path).expect("open tagged m4a");
+        let mp4 = lofty::mp4::Mp4File::read_from(&mut file, ParseOptions::new())
+            .expect("parse tagged m4a");
+        let ilst = mp4.ilst().expect("MP4 ilst tag expected");
+        let tmpo_atom = ilst
+            .get(&AtomIdent::Fourcc(*b"tmpo"))
+            .expect("tmpo atom expected in MP4 ilst");
+        assert_eq!(tmpo_atom.data().next(), Some(&AtomData::SignedInteger(128)));
+
+        // 2. Vérifier la relecture via read_existing_tags
+        let existing = read_existing_tags(&m4a_path).expect("read_existing_tags on M4A");
+        assert_eq!(existing.bpm, Some(128));
+        assert_eq!(existing.title.as_deref(), Some("Coconuts"));
+        assert_eq!(existing.artist.as_deref(), Some("Kim Petras"));
+
+        let _ = fs::remove_file(&m4a_path);
     }
 }

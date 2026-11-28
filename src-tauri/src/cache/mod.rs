@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::Manager;
@@ -14,6 +15,8 @@ use crate::models::{ExportMode, SessionCache, SessionCacheSummary, TrackStatus};
 
 pub const CACHE_FILENAME: &str = "cache.json";
 pub const SESSION_CACHE_VERSION: u32 = 1;
+
+static CACHE_IO_LOCK: Mutex<()> = Mutex::new(());
 
 fn now_epoch_ms() -> u64 {
     SystemTime::now()
@@ -67,10 +70,14 @@ fn sanitize_session(mut session: SessionCache) -> SessionCache {
     session
 }
 
-/// Sauvegarde atomique de la session dans `cache.json` (écriture dans `.tmp` puis renommage).
+/// Sauvegarde atomique et sérialisée de la session dans `cache.json` (écriture dans `.tmp` puis renommage).
 pub fn save_session_cache_to_path(path: &Path, session: &SessionCache) -> Result<(), String> {
+    let _guard = CACHE_IO_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     if session.tracks.is_empty() {
-        return clear_session_cache_at_path(path);
+        return clear_session_cache_at_path_unlocked(path);
     }
 
     if let Some(parent) = path.parent()
@@ -113,6 +120,10 @@ pub fn save_session_cache_to_path(path: &Path, session: &SessionCache) -> Result
 
 /// Charge une session précédente depuis `cache.json`. Retourne `Ok(None)` si absent ou vide.
 pub fn load_session_cache_from_path(path: &Path) -> Result<Option<SessionCache>, String> {
+    let _guard = CACHE_IO_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     if !path.is_file() {
         return Ok(None);
     }
@@ -133,13 +144,24 @@ pub fn load_session_cache_from_path(path: &Path) -> Result<Option<SessionCache>,
     Ok(Some(sanitize_session(parsed)))
 }
 
-/// Supprime `cache.json` lorsqu'une nouvelle session démarre ou que la file est vidée.
-pub fn clear_session_cache_at_path(path: &Path) -> Result<(), String> {
+fn clear_session_cache_at_path_unlocked(path: &Path) -> Result<(), String> {
     if path.is_file() {
         fs::remove_file(path)
             .map_err(|err| format!("Impossible de supprimer {} : {err}", path.display()))?;
     }
+    let tmp_path = path.with_extension("json.tmp");
+    if tmp_path.is_file() {
+        let _ = fs::remove_file(&tmp_path);
+    }
     Ok(())
+}
+
+/// Supprime `cache.json` lorsqu'une nouvelle session démarre ou que la file est vidée.
+pub fn clear_session_cache_at_path(path: &Path) -> Result<(), String> {
+    let _guard = CACHE_IO_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    clear_session_cache_at_path_unlocked(path)
 }
 
 /// Résume une session pour la bannière/modale de reprise au démarrage.
@@ -263,9 +285,11 @@ mod tests {
                 source: Some(MetadataSource::AppleMusic),
                 lyrics: None,
                 synced_lyrics: None,
+                bpm: None,
             }),
             exported_path: exported_path.map(str::to_string),
             local_artwork_path: None,
+            embedded_artwork_path: None,
             review_reason: None,
             candidates: Vec::new(),
             last_query_used: None,
@@ -282,6 +306,7 @@ mod tests {
             version: SESSION_CACHE_VERSION,
             updated_at_ms: 0,
             export_mode: ExportMode::Flat,
+            export_dir: None,
             tracks: vec![
                 make_track(
                     "track_1",
@@ -329,6 +354,7 @@ mod tests {
             version: SESSION_CACHE_VERSION,
             updated_at_ms: 1_700_000_000_000,
             export_mode: ExportMode::Dynamic,
+            export_dir: None,
             tracks: vec![make_track(
                 "track_done",
                 TrackStatus::Completed,
@@ -347,6 +373,7 @@ mod tests {
             version: SESSION_CACHE_VERSION,
             updated_at_ms: 0,
             export_mode: ExportMode::Dynamic,
+            export_dir: None,
             tracks: Vec::new(),
         };
         save_session_cache_to_path(&path, &empty_session).expect("empty save clears file");

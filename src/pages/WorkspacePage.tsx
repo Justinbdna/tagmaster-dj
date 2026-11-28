@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import { DragOverlay } from "../components/dropzone/DragOverlay";
 import { DropZoneCard } from "../components/dropzone/DropZoneCard";
@@ -12,6 +12,7 @@ import { FloatingActionDock } from "../components/progress/FloatingActionDock";
 import { ReviewQueueView } from "../components/review/ReviewQueueView";
 import { SettingsView } from "../components/settings/SettingsView";
 import { TrackQueueList } from "../components/tracks/TrackQueueList";
+import { DependencyBanner } from "../components/ui/DependencyBanner";
 import {
   ToastNotification,
   type ToastPayload,
@@ -19,21 +20,38 @@ import {
 import { useAppHealth } from "../hooks/useAppHealth";
 import { useTheme } from "../hooks/useTheme";
 import { useTrackLibrary } from "../hooks/useTrackLibrary";
+import {
+  checkRuntimeDependencies,
+  getDefaultExportDirectory,
+  isTauriEnvironment,
+  openExportDirectoryDialog,
+} from "../services/tauriBridge";
 import type {
   AppView,
   ExportFormatMode,
   ExportMode,
   HardwareProfile,
   ManualExportResult,
+  RuntimeDependenciesStatus,
   TrackMetadata,
 } from "../types/track";
 
 const FORMAT_STORAGE_KEY = "tagmaster_dj_format_mode";
 const PROFILE_STORAGE_KEY = "tagmaster_dj_hardware_profile";
+const EXPORT_DIR_STORAGE_KEY = "tagmaster_dj_export_dir";
 
 export function WorkspacePage() {
   const [activeView, setActiveView] = useState<AppView>("library");
   const [exportMode, setExportMode] = useState<ExportMode>("dynamic");
+  const [customExportDir, setCustomExportDirState] = useState<string | null>(
+    () => {
+      const saved = window.localStorage.getItem(EXPORT_DIR_STORAGE_KEY)?.trim();
+      return saved ? saved : null;
+    },
+  );
+  const [defaultExportDir, setDefaultExportDir] = useState<string>(
+    "Documents/Tagmaster_DJ_Export",
+  );
   const [formatMode, setFormatModeState] = useState<ExportFormatMode>(() => {
     const saved = window.localStorage.getItem(FORMAT_STORAGE_KEY);
     return saved === "force_mp3" ? "force_mp3" : "passthrough";
@@ -52,6 +70,41 @@ export function WorkspacePage() {
     string | null
   >(null);
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const [depsStatus, setDepsStatus] =
+    useState<RuntimeDependenciesStatus | null>(null);
+  const [depsBannerDismissed, setDepsBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    let active = true;
+    checkRuntimeDependencies()
+      .then((res) => {
+        if (active) setDepsStatus(res);
+      })
+      .catch(() => {
+        // Non-blocking startup diagnostic
+      });
+    getDefaultExportDirectory()
+      .then((dir) => {
+        if (active && dir.trim()) setDefaultExportDir(dir);
+      })
+      .catch(() => {
+        // Fallback label already set
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const setCustomExportDir = useCallback((dir: string | null) => {
+    const cleaned = dir?.trim() ? dir.trim() : null;
+    setCustomExportDirState(cleaned);
+    if (cleaned) {
+      window.localStorage.setItem(EXPORT_DIR_STORAGE_KEY, cleaned);
+    } else {
+      window.localStorage.removeItem(EXPORT_DIR_STORAGE_KEY);
+    }
+  }, []);
 
   const setFormatMode = useCallback((mode: ExportFormatMode) => {
     setFormatModeState(mode);
@@ -63,6 +116,8 @@ export function WorkspacePage() {
     window.localStorage.setItem(PROFILE_STORAGE_KEY, profile);
   }, []);
 
+  const activeExportDir = customExportDir ?? defaultExportDir;
+
   const { health } = useAppHealth();
   const { theme, setTheme, toggleTheme, glassTint, setGlassTint } = useTheme();
   const library = useTrackLibrary(
@@ -70,13 +125,72 @@ export function WorkspacePage() {
     setExportMode,
     formatMode,
     hardwareProfile,
+    customExportDir,
+    setCustomExportDir,
   );
 
   const isFocusMode = activeView === "review" || activeView === "duplicates";
 
-  const showToast = useCallback((message: string) => {
-    setToast({ id: Date.now(), message });
-  }, []);
+  const showToast = useCallback(
+    (
+      message: string,
+      action?: { actionLabel: string; onAction: () => void },
+    ) => {
+      setToast({
+        id: Date.now(),
+        message,
+        actionLabel: action?.actionLabel,
+        onAction: action?.onAction,
+      });
+    },
+    [],
+  );
+
+  const buildExportToastAction = useCallback(
+    (completedCount: number, lastExportedPath?: string) => ({
+      actionLabel: "Voir",
+      onAction: () => {
+        if (completedCount === 1 && lastExportedPath) {
+          void library.revealExportedFile(lastExportedPath);
+        } else {
+          void library.openExportFolder();
+        }
+      },
+    }),
+    [library.openExportFolder, library.revealExportedFile],
+  );
+
+  const handlePickExportDir = useCallback(async () => {
+    if (!isTauriEnvironment()) return;
+    try {
+      const picked = await openExportDirectoryDialog();
+      if (picked) {
+        setCustomExportDir(picked);
+        showToast("Dossier d'export mis à jour");
+      }
+    } catch {
+      // Ignore canceled dialog
+    }
+  }, [setCustomExportDir, showToast]);
+
+  const handleResetExportDir = useCallback(() => {
+    setCustomExportDir(null);
+    showToast("Dossier d'export réinitialisé par défaut");
+  }, [setCustomExportDir, showToast]);
+
+  const handleLookupTrack = useCallback(
+    (id: string) => {
+      void library.lookupTrack(id);
+    },
+    [library.lookupTrack],
+  );
+
+  const handleRevealExportedFile = useCallback(
+    (path: string) => {
+      void library.revealExportedFile(path);
+    },
+    [library.revealExportedFile],
+  );
 
   const openTrackInReview = useCallback((trackId: string) => {
     setSelectedReviewTrackId(trackId);
@@ -114,10 +228,19 @@ export function WorkspacePage() {
       if (summary && !summary.interruptedByNetwork && summary.completedCount > 0) {
         showToast(
           `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+          buildExportToastAction(
+            summary.completedCount,
+            summary.lastExportedPath,
+          ),
         );
       }
     },
-    [exportMode, library.startBatchPipeline, showToast],
+    [
+      buildExportToastAction,
+      exportMode,
+      library.startBatchPipeline,
+      showToast,
+    ],
   );
 
   const handleResumeSession = useCallback(async () => {
@@ -142,18 +265,30 @@ export function WorkspacePage() {
     ) {
       showToast(
         `Export terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+        buildExportToastAction(
+          summary.completedCount,
+          summary.lastExportedPath,
+        ),
       );
     }
-  }, [library.retryInterruptedBatch, showToast]);
+  }, [buildExportToastAction, library.retryInterruptedBatch, showToast]);
 
   const handleExportReadyFromInterruption = useCallback(async () => {
     const summary = await library.exportReadyTracksFromInterruption();
     if (summary && summary.completedCount > 0) {
       showToast(
         `Export partiel terminé — ${summary.completedCount} piste${summary.completedCount > 1 ? "s" : ""} exportée${summary.completedCount > 1 ? "s" : ""}`,
+        buildExportToastAction(
+          summary.completedCount,
+          summary.lastExportedPath,
+        ),
       );
     }
-  }, [library.exportReadyTracksFromInterruption, showToast]);
+  }, [
+    buildExportToastAction,
+    library.exportReadyTracksFromInterruption,
+    showToast,
+  ]);
 
   const handleTrackValidatedFromReview = useCallback(
     (trackId: string, metadata: TrackMetadata, localArtworkPath?: string) => {
@@ -192,6 +327,7 @@ export function WorkspacePage() {
       const remainingList = reviewTracks.filter((t) => t.id !== trackId);
       library.resolveTrackFromReview(trackId, result, localArtworkPath);
 
+      const revealAction = buildExportToastAction(1, result.exportedPath);
       if (wasInReviewQueue && remainingList.length === 0) {
         setSelectedReviewTrackId(null);
         setActiveView("library");
@@ -199,17 +335,19 @@ export function WorkspacePage() {
           library.isRunningBatch
             ? "Export terminé — analyse du lot en cours…"
             : "File de révision terminée — toutes les pistes sont exportées",
+          revealAction,
         );
       } else if (!wasInReviewQueue) {
         setSelectedReviewTrackId(null);
         setActiveView("library");
-        showToast("Export terminé — 1 piste exportée");
+        showToast("Export terminé — 1 piste exportée", revealAction);
       } else {
         setSelectedReviewTrackId(remainingList[0].id);
-        showToast("Export terminé — 1 piste exportée");
+        showToast("Export terminé — 1 piste exportée", revealAction);
       }
     },
     [
+      buildExportToastAction,
       library.isRunningBatch,
       library.resolveTrackFromReview,
       reviewTracks,
@@ -279,6 +417,7 @@ export function WorkspacePage() {
           reviewCount={library.reviewCount}
           duplicateGroupCount={library.duplicateGroups.length}
           health={health}
+          exportDirPath={activeExportDir}
           onOpenExportFolder={() => void library.openExportFolder()}
         />
       )}
@@ -297,6 +436,13 @@ export function WorkspacePage() {
             setActiveView("library");
           }}
         />
+
+        {!depsBannerDismissed && (
+          <DependencyBanner
+            status={depsStatus}
+            onDismiss={() => setDepsBannerDismissed(true)}
+          />
+        )}
 
         {library.errorMessage && (
           <div className="modal-surface text-semantic-danger flex shrink-0 items-center justify-between gap-3 rounded-[16px] border-rose-500/35 px-4 py-2.5 text-[12.5px] font-medium">
@@ -331,13 +477,15 @@ export function WorkspacePage() {
                   duplicateGroupByTrackId={library.duplicateGroupByTrackId}
                   onOpenDuplicates={openDuplicateComparator}
                   onRemoveTrack={library.removeTrack}
-                  onLookupTrack={(id) => void library.lookupTrack(id)}
+                  onLookupTrack={handleLookupTrack}
                   onOpenReviewTrack={openTrackInReview}
+                  onRevealExportedFile={handleRevealExportedFile}
                   onClearAll={library.clearTracks}
                   onPickFolder={() => void library.pickFolder()}
                   onPickFiles={() => void library.pickFiles()}
                   isScanning={library.isScanning}
                   isRunningBatch={library.isRunningBatch}
+                  batchAction={library.batchAction}
                   isResumedSession={library.isResumedSession}
                 />
 
@@ -372,6 +520,7 @@ export function WorkspacePage() {
             exportMode={exportMode}
             formatMode={formatMode}
             hardwareProfile={hardwareProfile}
+            exportDir={customExportDir}
             onTrackValidated={handleTrackValidatedFromReview}
             onTrackResolved={handleTrackResolvedFromReview}
             onBackToLibrary={() => {
@@ -406,6 +555,11 @@ export function WorkspacePage() {
             onSelectGlassTint={setGlassTint}
             exportMode={exportMode}
             onSelectExportMode={setExportMode}
+            exportDirPath={activeExportDir}
+            isCustomExportDir={customExportDir !== null}
+            onPickExportDir={() => void handlePickExportDir()}
+            onResetExportDir={handleResetExportDir}
+            onOpenExportFolder={() => void library.openExportFolder()}
             formatMode={formatMode}
             onSelectFormatMode={setFormatMode}
             hardwareProfile={hardwareProfile}

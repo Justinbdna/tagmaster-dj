@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  clearEmbeddedArtworkCache,
   clearSessionCache,
   detectDuplicateGroups,
   exitApp,
+  extractEmbeddedArtworks,
   getSessionCacheSummary,
   isTauriEnvironment,
   loadSessionCache,
@@ -10,11 +12,14 @@ import {
   openAudioFilesDialog,
   openExportDirectory,
   openFolderDialog,
+  removeEmbeddedArtworkFiles,
+  revealInFileManager,
   runBatchLookup,
   runBatchPipeline,
   saveSessionCache,
   scanAudioPaths,
   subscribeToPipelineProgress,
+  subscribeToTrackArtworks,
   subscribeToWindowDragDrop,
 } from "../services/tauriBridge";
 import type {
@@ -193,6 +198,8 @@ export function useTrackLibrary(
   onRestoreExportMode: (mode: ExportMode) => void,
   formatMode: ExportFormatMode = "passthrough",
   hardwareProfile: HardwareProfile = "standard",
+  customExportDir: string | null = null,
+  onRestoreExportDir?: (dir: string | null) => void,
 ) {
   const [tracks, setTracks] = useState<AudioTrackItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -219,6 +226,17 @@ export function useTrackLibrary(
   formatModeRef.current = formatMode;
   const hardwareProfileRef = useRef<HardwareProfile>(hardwareProfile);
   hardwareProfileRef.current = hardwareProfile;
+  const customExportDirRef = useRef<string | null>(customExportDir);
+  customExportDirRef.current = customExportDir;
+  const batchActionRef = useRef<"lookup" | "export" | null>(batchAction);
+  batchActionRef.current = batchAction;
+  const isPersistingRef = useRef(false);
+  const pendingPersistRef = useRef<{
+    tracks: AudioTrackItem[];
+    mode: ExportMode;
+  } | null>(null);
+  const batchFlushTimerRef = useRef<number | null>(null);
+  const artworkGenerationRef = useRef(0);
 
   // Sprint 2 Bloc 3 — Network resilience modal (#13)
   const [networkInterruption, setNetworkInterruption] =
@@ -237,40 +255,83 @@ export function useTrackLibrary(
 
   const persistSessionNow = useCallback(
     async (tracksToSave: AudioTrackItem[], modeToSave: ExportMode) => {
-      const payload: SessionCache = {
-        version: 1,
-        updatedAtMs: Date.now(),
-        exportMode: modeToSave,
+      if (batchFlushTimerRef.current !== null) {
+        window.clearTimeout(batchFlushTimerRef.current);
+        batchFlushTimerRef.current = null;
+      }
+
+      if (isPersistingRef.current) {
+        pendingPersistRef.current = {
+          tracks: tracksToSave,
+          mode: modeToSave,
+        };
+        return;
+      }
+
+      isPersistingRef.current = true;
+      let nextBatch: { tracks: AudioTrackItem[]; mode: ExportMode } | null = {
         tracks: tracksToSave,
+        mode: modeToSave,
       };
 
-      if (isTauriEnvironment()) {
-        try {
-          if (tracksToSave.length === 0) {
-            await clearSessionCache();
+      try {
+        while (nextBatch) {
+          const current = nextBatch;
+          nextBatch = null;
+          const payload: SessionCache = {
+            version: 1,
+            updatedAtMs: Date.now(),
+            exportMode: current.mode,
+            exportDir: customExportDirRef.current ?? undefined,
+            tracks: current.tracks,
+          };
+
+          if (isTauriEnvironment()) {
+            try {
+              if (current.tracks.length === 0) {
+                await clearSessionCache();
+              } else {
+                await saveSessionCache(payload);
+              }
+            } catch {
+              // Non-blocking persistence failure
+            }
           } else {
-            await saveSessionCache(payload);
+            try {
+              if (current.tracks.length === 0) {
+                window.localStorage.removeItem(BROWSER_CACHE_KEY);
+              } else {
+                window.localStorage.setItem(
+                  BROWSER_CACHE_KEY,
+                  JSON.stringify(payload),
+                );
+              }
+            } catch {
+              // Ignore storage quota errors in browser preview
+            }
           }
-        } catch {
-          // Non-blocking persistence failure
-        }
-      } else {
-        try {
-          if (tracksToSave.length === 0) {
-            window.localStorage.removeItem(BROWSER_CACHE_KEY);
-          } else {
-            window.localStorage.setItem(
-              BROWSER_CACHE_KEY,
-              JSON.stringify(payload),
-            );
+
+          if (pendingPersistRef.current) {
+            nextBatch = pendingPersistRef.current;
+            pendingPersistRef.current = null;
           }
-        } catch {
-          // Ignore storage quota errors in browser preview
         }
+      } finally {
+        isPersistingRef.current = false;
       }
     },
     [],
   );
+
+  const scheduleBatchPersist = useCallback(() => {
+    if (!sessionReadyRef.current || batchFlushTimerRef.current !== null) return;
+    batchFlushTimerRef.current = window.setTimeout(() => {
+      batchFlushTimerRef.current = null;
+      if (sessionReadyRef.current) {
+        void persistSessionNow(tracksRef.current, exportModeRef.current);
+      }
+    }, 1200);
+  }, [persistSessionNow]);
 
   // Check for an unfinished saved session on startup
   useEffect(() => {
@@ -313,14 +374,46 @@ export function useTrackLibrary(
     };
   }, []);
 
-  // Auto-save cache.json whenever tracks or exportMode change (once hydrated)
+  // Auto-save cache.json whenever tracks or exportMode change outside active batches
   useEffect(() => {
-    if (!sessionReadyRef.current) return;
+    if (!sessionReadyRef.current || isRunningBatch) return;
     const timer = window.setTimeout(() => {
       void persistSessionNow(tracks, exportMode);
-    }, 180);
+    }, 220);
     return () => window.clearTimeout(timer);
-  }, [tracks, exportMode, persistSessionNow]);
+  }, [tracks, exportMode, isRunningBatch, persistSessionNow]);
+
+  // Guaranteed flush of cache.json when closing the window
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sessionReadyRef.current && tracksRef.current.length > 0) {
+        void persistSessionNow(tracksRef.current, exportModeRef.current);
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      if (batchFlushTimerRef.current !== null) {
+        window.clearTimeout(batchFlushTimerRef.current);
+        batchFlushTimerRef.current = null;
+      }
+    };
+  }, [persistSessionNow]);
+
+  const queueArtworkExtraction = useCallback((items: AudioTrackItem[]) => {
+    if (!isTauriEnvironment() || items.length === 0) return;
+    const payload = items
+      .filter(
+        (item) =>
+          !item.embeddedArtworkPath &&
+          !item.localArtworkPath &&
+          !item.metadata?.artworkUrl,
+      )
+      .map((item) => ({ id: item.id, sourcePath: item.sourcePath }));
+    if (payload.length > 0) {
+      void extractEmbeddedArtworks(payload);
+    }
+  }, []);
 
   const resumePreviousSession = useCallback(async (): Promise<boolean> => {
     try {
@@ -334,7 +427,11 @@ export function useTrackLibrary(
 
       if (restored && restored.tracks.length > 0) {
         onRestoreExportMode(restored.exportMode);
+        if (restored.exportDir && onRestoreExportDir) {
+          onRestoreExportDir(restored.exportDir);
+        }
         setTracks(restored.tracks);
+        queueArtworkExtraction(restored.tracks);
         setIsResumedSession(true);
         const exported = restored.tracks.filter(
           (t) => t.status === "completed" && Boolean(t.exportedPath),
@@ -357,18 +454,23 @@ export function useTrackLibrary(
       sessionReadyRef.current = true;
       return false;
     }
-  }, [onRestoreExportMode]);
+  }, [onRestoreExportDir, onRestoreExportMode, queueArtworkExtraction]);
 
   const startNewSession = useCallback(async () => {
+    artworkGenerationRef.current += 1;
     setPendingSessionSummary(null);
     setIsResumedSession(false);
     setTracks([]);
+    tracksRef.current = [];
     setDismissedDuplicatePairs(new Set());
     sessionReadyRef.current = true;
-    await persistSessionNow([], exportModeRef.current);
+    await Promise.all([
+      persistSessionNow([], exportModeRef.current),
+      clearEmbeddedArtworkCache().catch(() => 0),
+    ]);
   }, [persistSessionNow]);
 
-  // Duplicate detection whenever tracks change
+  // Duplicate detection whenever tracks change (skipped during active batches + debounced for 3,000+ tracks)
   const duplicateSignatureKey = useMemo(
     () =>
       tracks
@@ -382,30 +484,37 @@ export function useTrackLibrary(
 
   useEffect(() => {
     let active = true;
+    if (isRunningBatch) {
+      return;
+    }
     if (tracks.length < 2) {
       setRawDuplicateGroups([]);
       return;
     }
 
-    if (isTauriEnvironment()) {
-      detectDuplicateGroups(tracks)
-        .then((groups) => {
-          if (active) setRawDuplicateGroups(groups);
-        })
-        .catch(() => {
-          if (active) {
-            setRawDuplicateGroups(detectDuplicatesBrowserFallback(tracks));
-          }
-        });
-    } else {
-      setRawDuplicateGroups(detectDuplicatesBrowserFallback(tracks));
-    }
+    const timer = window.setTimeout(() => {
+      const snapshot = tracksRef.current;
+      if (isTauriEnvironment()) {
+        detectDuplicateGroups(snapshot)
+          .then((groups) => {
+            if (active) setRawDuplicateGroups(groups);
+          })
+          .catch(() => {
+            if (active) {
+              setRawDuplicateGroups(detectDuplicatesBrowserFallback(snapshot));
+            }
+          });
+      } else {
+        setRawDuplicateGroups(detectDuplicatesBrowserFallback(snapshot));
+      }
+    }, 320);
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [duplicateSignatureKey]);
+  }, [duplicateSignatureKey, isRunningBatch]);
 
   // Filter out groups where every pair has been explicitly dismissed ("Garder les deux")
   const duplicateGroups = useMemo<DuplicateGroup[]>(() => {
@@ -520,6 +629,7 @@ export function useTrackLibrary(
       try {
         const result = await scanAudioPaths(paths);
         mergeTracks(result.tracks, result.skippedCount);
+        queueArtworkExtraction(result.tracks);
       } catch (err) {
         setErrorMessage(
           err instanceof Error
@@ -530,7 +640,7 @@ export function useTrackLibrary(
         setIsScanning(false);
       }
     },
-    [mergeTracks],
+    [mergeTracks, queueArtworkExtraction],
   );
 
   const importBrowserFiles = useCallback(
@@ -599,17 +709,31 @@ export function useTrackLibrary(
   }, [importNativePaths]);
 
   const removeTrack = useCallback((id: string) => {
+    const removedThumb = tracksRef.current.find(
+      (item) => item.id === id,
+    )?.embeddedArtworkPath;
     setTracks((prev) => prev.filter((item) => item.id !== id));
+    if (removedThumb) {
+      void removeEmbeddedArtworkFiles([removedThumb]).catch(() => 0);
+    }
   }, []);
 
   const removeTracks = useCallback((ids: string[]) => {
     if (ids.length === 0) return;
     const dropSet = new Set(ids);
+    const removedThumbs = tracksRef.current
+      .filter((item) => dropSet.has(item.id) && Boolean(item.embeddedArtworkPath))
+      .map((item) => item.embeddedArtworkPath as string);
     setTracks((prev) => prev.filter((item) => !dropSet.has(item.id)));
+    if (removedThumbs.length > 0) {
+      void removeEmbeddedArtworkFiles(removedThumbs).catch(() => 0);
+    }
   }, []);
 
   const clearTracks = useCallback(() => {
+    artworkGenerationRef.current += 1;
     setTracks([]);
+    tracksRef.current = [];
     setBatchProgress(null);
     setNotice(null);
     setErrorMessage(null);
@@ -617,11 +741,12 @@ export function useTrackLibrary(
     setNetworkInterruption(null);
     setDismissedDuplicatePairs(new Set());
     void persistSessionNow([], exportModeRef.current);
+    void clearEmbeddedArtworkCache().catch(() => 0);
   }, [persistSessionNow]);
 
   const lookupTrack = useCallback(
     async (id: string) => {
-      const target = tracks.find((t) => t.id === id);
+      const target = tracksRef.current.find((t) => t.id === id);
       if (!target) return;
       if (!isTauriEnvironment()) {
         setErrorMessage(
@@ -692,7 +817,7 @@ export function useTrackLibrary(
         setErrorMessage(message);
       }
     },
-    [tracks],
+    [],
   );
 
   const buildInterruptionState = useCallback(
@@ -874,6 +999,7 @@ export function useTrackLibrary(
           mode,
           formatModeRef.current,
           hardwareProfileRef.current,
+          customExportDirRef.current,
         );
         await persistSessionNow(tracksRef.current, mode);
 
@@ -945,13 +1071,33 @@ export function useTrackLibrary(
     }
 
     try {
-      const openedPath = await openExportDirectory();
+      const openedPath = await openExportDirectory(customExportDirRef.current);
       setNotice(`Dossier d'export ouvert : ${openedPath}`);
     } catch (err) {
       setErrorMessage(
         err instanceof Error
           ? err.message
           : "Impossible d'ouvrir le dossier Tagmaster_DJ_Export.",
+      );
+    }
+  }, []);
+
+  const revealExportedFile = useCallback(async (path: string) => {
+    setErrorMessage(null);
+    if (!isTauriEnvironment()) {
+      setErrorMessage(
+        "L'affichage du fichier dans le gestionnaire nécessite l'application desktop Tauri.",
+      );
+      return;
+    }
+
+    try {
+      await revealInFileManager(path);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "Impossible d'afficher le fichier exporté.",
       );
     }
   }, []);
@@ -1008,7 +1154,48 @@ export function useTrackLibrary(
     [],
   );
 
-  // Listen to real-time pipeline progress events from Rust + save cache.json after each completed track
+  // Listen to background embedded artwork extraction batches from Rust
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+
+    subscribeToTrackArtworks((batch) => {
+      if (!active || batch.length === 0) return;
+      const expectedGen = artworkGenerationRef.current;
+      const byId = new Map<string, string>();
+      for (const item of batch) {
+        byId.set(item.trackId, item.embeddedArtworkPath);
+      }
+      setTracks((prev) => {
+        if (prev.length === 0 || artworkGenerationRef.current !== expectedGen) {
+          return prev;
+        }
+        let changed = false;
+        const next = prev.map((track) => {
+          const art = byId.get(track.id);
+          if (!art || track.embeddedArtworkPath === art) return track;
+          changed = true;
+          return { ...track, embeddedArtworkPath: art };
+        });
+        if (!changed) return prev;
+        tracksRef.current = next;
+        return next;
+      });
+    }).then((fn) => {
+      if (active) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
+    });
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  // Listen to real-time pipeline progress events from Rust + coalesced cache.json persistence
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let active = true;
@@ -1017,16 +1204,28 @@ export function useTrackLibrary(
       if (!active) return;
       setBatchProgress(event);
       setTracks((prev) => {
+        if (prev.length === 0) return prev;
+        let changed = false;
         const next = prev.map((item) => {
           if (item.id !== event.trackId) return item;
+          changed = true;
           const clearReview =
             event.trackStatus === "processing" ||
             event.trackStatus === "completed";
+          const clearStaleExportPath =
+            event.trackStatus === "needs_review" ||
+            event.trackStatus === "failed" ||
+            (event.trackStatus === "processing" &&
+              batchActionRef.current === "export");
           return {
             ...item,
             status: event.trackStatus,
             metadata: event.metadata ?? item.metadata,
-            exportedPath: event.exportedPath ?? item.exportedPath,
+            exportedPath: event.exportedPath
+              ? event.exportedPath
+              : clearStaleExportPath
+                ? undefined
+                : item.exportedPath,
             reviewReason: clearReview ? undefined : event.reviewReason,
             candidates: clearReview
               ? undefined
@@ -1036,9 +1235,10 @@ export function useTrackLibrary(
             lastQueryUsed: event.queryUsed ?? item.lastQueryUsed,
           };
         });
+        if (!changed) return prev;
         tracksRef.current = next;
         if (event.trackStatus !== "processing" && sessionReadyRef.current) {
-          void persistSessionNow(next, exportModeRef.current);
+          scheduleBatchPersist();
         }
         return next;
       });
@@ -1054,7 +1254,7 @@ export function useTrackLibrary(
       active = false;
       if (unlisten) unlisten();
     };
-  }, [persistSessionNow]);
+  }, [scheduleBatchPersist]);
 
   // Native Tauri 2 Drag & Drop listener + Browser preview fallback
   useEffect(() => {
@@ -1215,6 +1415,7 @@ export function useTrackLibrary(
     startBatchLookup,
     startBatchPipeline,
     openExportFolder,
+    revealExportedFile,
     validateTrackFromReview,
     resolveTrackFromReview,
     importBrowserFiles,

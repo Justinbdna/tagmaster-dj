@@ -16,7 +16,15 @@ interface SidebarProps {
   reviewCount: number;
   duplicateGroupCount: number;
   health: HealthStatus | null;
+  exportDirPath: string;
   onOpenExportFolder: () => void;
+}
+
+function getFolderDisplayName(fullPath: string): string {
+  const trimmed = fullPath.trim().replace(/[\\/]+$/, "");
+  if (!trimmed) return "Tagmaster_DJ_Export";
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? trimmed;
 }
 
 export function Sidebar({
@@ -26,8 +34,10 @@ export function Sidebar({
   reviewCount,
   duplicateGroupCount,
   health,
+  exportDirPath,
   onOpenExportFolder,
 }: SidebarProps) {
+  const exportFolderName = getFolderDisplayName(exportDirPath);
   const navItems: {
     id: AppView;
     label: string;
@@ -78,7 +88,7 @@ export function Sidebar({
               Tagmaster DJ
             </h1>
             <p className="truncate text-[11px] font-medium text-muted">
-              Local-First · v{health?.version ?? "0.2.0"}
+              Local-First · v{health?.version ?? "0.3.0"}
             </p>
           </div>
         </div>
@@ -130,7 +140,7 @@ export function Sidebar({
       <button
         type="button"
         onClick={onOpenExportFolder}
-        title="Ouvrir Documents/Tagmaster_DJ_Export"
+        title={`Ouvrir ${exportDirPath || "Documents/Tagmaster_DJ_Export"}`}
         className="liquid-glass-pill group relative z-10 flex w-full cursor-pointer items-center justify-between gap-2 rounded-full px-3.5 py-2 text-[11.5px] font-medium text-secondary hover:text-primary"
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -139,7 +149,7 @@ export function Sidebar({
             strokeWidth={1.9}
           />
           <span className="truncate font-mono text-[11px]">
-            Tagmaster_DJ_Export
+            {exportFolderName}
           </span>
         </span>
         <ExternalLink className="h-3 w-3 shrink-0 text-muted opacity-70 transition-opacity group-hover:opacity-100" />

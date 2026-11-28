@@ -97,7 +97,7 @@ fn http_client() -> Result<&'static Client, String> {
     CLIENT
         .get_or_init(|| {
             Client::builder()
-                .user_agent("TagmasterDJ/0.2.0 (Open Source Local Music Tagger)")
+                .user_agent("TagmasterDJ/0.3.0 (Open Source Local Music Tagger)")
                 .timeout(Duration::from_secs(15))
                 .build()
                 .map_err(|err| format!("Impossible d'initialiser le client HTTP : {err}"))
@@ -547,6 +547,7 @@ fn itunes_track_to_candidate(
         source: Some(MetadataSource::AppleMusic),
         platform: None,
         duration_secs: None,
+        bpm: None,
     }
 }
 

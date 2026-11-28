@@ -18,7 +18,7 @@ use crate::tagger::rules::{
 };
 
 const DISCOGS_SEARCH_URL: &str = "https://api.discogs.com/database/search";
-const DISCOGS_USER_AGENT: &str = "TagmasterDJ/0.2.0 +https://github.com/Justinbdna/tagmaster-dj";
+const DISCOGS_USER_AGENT: &str = "TagmasterDJ/0.3.0 +https://github.com/Justinbdna/tagmaster-dj";
 const DISCOGS_TIMEOUT_SECS: u64 = 12;
 const DISCOGS_RATE_LIMIT_MS: u64 = 1000;
 const MAX_DISCOGS_CANDIDATES: usize = 6;
@@ -188,6 +188,7 @@ pub fn parse_discogs_json(json: &str, query: &str) -> Result<Vec<TrackCandidate>
             source: Some(MetadataSource::Discogs),
             platform: Some("Discogs".to_string()),
             duration_secs: None,
+            bpm: None,
         });
     }
 

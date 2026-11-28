@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type {
   ApiKeysSettings,
   ArtworkCandidate,
+  ArtworkExtractInput,
   AudioTrackItem,
   BatchSummary,
   BatchTrackInput,
@@ -20,15 +21,18 @@ import type {
   MetadataLookupResult,
   PipelineProgressEvent,
   QuickSearchSource,
+  RuntimeDependenciesStatus,
   ScanResult,
   SessionCache,
   SessionCacheSummary,
   TrackCandidate,
+  TrackEmbeddedArtwork,
 } from "../types/track";
 
 const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "flac", "wav"];
 const ARTWORK_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
 const PIPELINE_PROGRESS_EVENT = "pipeline://progress";
+const TRACK_ARTWORKS_EVENT = "tracks://artworks";
 
 export function isTauriEnvironment(): boolean {
   return isTauri();
@@ -44,6 +48,10 @@ export async function checkBackendHealth(): Promise<HealthStatus> {
 
 export async function checkFfmpegStatus(): Promise<FfmpegStatus> {
   return invoke<FfmpegStatus>("check_ffmpeg_status");
+}
+
+export async function checkRuntimeDependencies(): Promise<RuntimeDependenciesStatus> {
+  return invoke<RuntimeDependenciesStatus>("check_runtime_dependencies");
 }
 
 export async function scanAudioPaths(paths: string[]): Promise<ScanResult> {
@@ -73,17 +81,79 @@ export async function runBatchPipeline(
   exportMode: ExportMode,
   formatMode?: ExportFormatMode,
   hardwareProfile?: HardwareProfile,
+  exportDir?: string | null,
 ): Promise<BatchSummary> {
   return invoke<BatchSummary>("run_batch_pipeline", {
     tracks,
     exportMode,
     formatMode,
     hardwareProfile,
+    exportDir: exportDir || undefined,
   });
 }
 
-export async function openExportDirectory(): Promise<string> {
-  return invoke<string>("open_export_directory");
+export async function getDefaultExportDirectory(): Promise<string> {
+  return invoke<string>("get_default_export_directory");
+}
+
+export async function openExportDirectory(
+  exportDir?: string | null,
+): Promise<string> {
+  return invoke<string>("open_export_directory", {
+    exportDir: exportDir || undefined,
+  });
+}
+
+export async function openExportDirectoryDialog(): Promise<string | null> {
+  const result = await open({
+    directory: true,
+    multiple: false,
+    title: "Choisir le dossier de destination des exports",
+  });
+  const normalized = normalizeDialogResult(result);
+  return normalized[0] ?? null;
+}
+
+export async function revealInFileManager(path: string): Promise<void> {
+  return invoke<void>("reveal_in_file_manager", { path });
+}
+
+export async function extractEmbeddedArtworks(
+  tracks: ArtworkExtractInput[],
+): Promise<void> {
+  if (!isTauri() || tracks.length === 0) return;
+  return invoke<void>("extract_embedded_artworks", { tracks });
+}
+
+export async function clearEmbeddedArtworkCache(): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("clear_embedded_artwork_cache");
+}
+
+export async function removeEmbeddedArtworkFiles(
+  paths: string[],
+): Promise<number> {
+  if (!isTauri() || paths.length === 0) return 0;
+  return invoke<number>("remove_embedded_artwork_files", { paths });
+}
+
+export async function subscribeToTrackArtworks(
+  onBatch: (items: TrackEmbeddedArtwork[]) => void,
+): Promise<() => void> {
+  if (!isTauri()) {
+    return () => {};
+  }
+
+  const unlisten = await listen<TrackEmbeddedArtwork[]>(
+    TRACK_ARTWORKS_EVENT,
+    (event) => {
+      if (Array.isArray(event.payload) && event.payload.length > 0) {
+        onBatch(event.payload);
+      }
+    },
+  );
+
+  return unlisten;
 }
 
 export async function searchAppleMusicCandidates(

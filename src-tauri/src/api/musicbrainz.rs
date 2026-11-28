@@ -1,7 +1,7 @@
 //! Client API MusicBrainz (sans clé API) + Cover Art Archive.
 //!
 //! Respecte strictement le rate-limit MusicBrainz (1 requête/seconde) et envoie
-//! le header `User-Agent: TagmasterDJ/0.2.0`.
+//! le header `User-Agent: TagmasterDJ/0.3.0`.
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -15,7 +15,7 @@ use crate::tagger::rules::{RawMetadataInput, normalize_for_match, normalize_trac
 
 const MUSICBRAINZ_RECORDING_URL: &str = "https://musicbrainz.org/ws/2/recording/";
 const COVER_ART_ARCHIVE_BASE: &str = "https://coverartarchive.org/release";
-const MB_USER_AGENT: &str = "TagmasterDJ/0.2.0 (https://github.com/Justinbdna/tagmaster-dj)";
+const MB_USER_AGENT: &str = "TagmasterDJ/0.3.0 (https://github.com/Justinbdna/tagmaster-dj)";
 const MB_TIMEOUT_SECS: u64 = 12;
 const MB_RATE_LIMIT_MS: u64 = 1050;
 const MAX_MB_CANDIDATES: usize = 6;

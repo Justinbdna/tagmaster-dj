@@ -74,7 +74,7 @@ fn http_client() -> Result<&'static Client, String> {
     CLIENT
         .get_or_init(|| {
             Client::builder()
-                .user_agent("TagmasterDJ/0.2.0 (Open Source Local Music Tagger)")
+                .user_agent("TagmasterDJ/0.3.0 (Open Source Local Music Tagger)")
                 .timeout(Duration::from_secs(DEEZER_TIMEOUT_SECS))
                 .build()
                 .map_err(|err| format!("Impossible d'initialiser le client HTTP Deezer : {err}"))

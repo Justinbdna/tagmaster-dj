@@ -4,6 +4,33 @@ Toutes les évolutions notables de **Tagmaster DJ** sont documentées dans ce fi
 
 ---
 
+## [0.3.0] — 2026-11-28
+
+### Ajouté
+- **Packaging natif macOS / Windows & CI/CD GitHub Actions** :
+  - Configuration Tauri 2.0 complète pour la génération d'installeurs natifs **macOS (`.dmg`, `.app`)** et **Windows (`.exe` NSIS, `.msi`)**.
+  - Workflows `.github/workflows/ci.yml` (validation Rust macOS/Ubuntu + TypeScript/Vite sur chaque PR) et `.github/workflows/release.yml` (publication automatique des builds multi-plateformes sur chaque tag `v*`).
+  - Diagnostic intégré au démarrage des dépendances externes **`ffmpeg`** et **`yt-dlp`** (bannière discrète avec commande d'installation adaptée à l'OS : `brew` / `winget` / `apt`).
+- **Parallélisme maîtrisé & performances gros lots (3 000+ pistes)** :
+  - Identification en parallèle via pool asynchrone borné à **3 workers simultanés** (clients HTTP réutilisés via `OnceLock`, rate-limiters indépendants par source, modale de résilience réseau intacte).
+  - Export parallèle (FFmpeg + Table Rase) adapté aux cœurs logiques (`clamp(threads / 2, 2, 4)`), écritures `cache.json` sérialisées et regroupées hors thread principal, lignes de file mémoïsées (`React.memo`).
+- **Pochettes locales dès l'import & purge disque automatique** :
+  - Extraction asynchrone en arrière-plan des pochettes embarquées dans `tagmaster-dj-thumbs` (affichage immédiat cadré en `object-cover`, remplacé automatiquement par la pochette HD après identification).
+  - Nettoyage automatique des miniatures orphelines au démarrage et purge immédiate sur **Vider**, **Nouvelle session** ou suppression de piste.
+- **Révélation des exports dans le Finder / Explorateur** :
+  - Badge **`Exporté`** cliquable dans la bibliothèque (`open -R` sur macOS, `explorer /select,` sur Windows, `xdg-open` sur Linux) et bouton compact **`Voir`** dans le toast de fin d'export.
+- **Dossier d'export personnalisable** :
+  - Sélection d'un dossier cible personnalisé (disque externe, clé USB, `MUSIC/` PSP…) dans **Paramètres → Type d'export** avec bouton **Par défaut**, validation préalable en écriture et raccourci dynamique dans la **Sidebar**.
+- **Support du tag BPM (`TBPM` / `tmpo` / `BPM`)** :
+  - Extraction sans surcoût réseau depuis l'API Deezer et conservation du BPM existant des fichiers sources.
+  - Écriture standard **`TBPM`** (ID3v2.3/2.4 sur MP3), atome entier signé **`tmpo`** (`DataType::BeSignedInteger` sur MP4/M4A) et **`BPM`** (Vorbis/FLAC), plus champ discret **BPM** dans le formulaire d'édition de la File de révision.
+
+### Qualité & Sécurité
+- **66 tests unitaires Rust** couvrant également la concurrence bornée, la purge sécurisée du cache de miniatures, la validation du dossier d'export, `reveal_in_file_manager` (caractères spéciaux) et l'écriture/relecture BPM sur MP3 et M4A.
+- `cargo clippy --all-targets -- -D warnings`, `cargo test`, `tsc --noEmit` et `npm run build` validés à **0 erreur, 0 warning**.
+
+---
+
 ## [0.2.0] — 2026-11-27
 
 ### Ajouté

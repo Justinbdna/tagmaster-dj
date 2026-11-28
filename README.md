@@ -4,25 +4,31 @@ Application desktop **100 % open-source (Licence MIT)**, locale (*local-first*),
 
 ---
 
-## Fonctionnalités (`v0.2.0`)
+## Fonctionnalités (`v0.3.0`)
 
 - **Interface Liquid Glass native (Clair & Sombre)** : translucidité macOS native (`Translucide` / `Teinté`), modes focus pleine largeur, pastilles coulissantes et contrastes WCAG AA+.
-- **Cascade multi-sources intelligente (`Auto`)** :
+- **Performances & gros lots (3 000+ pistes)** :
+  - Identification en parallèle (pool borné à 3 workers, clients HTTP réutilisés) et export multi-threadé (`clamp(threads / 2, 2, 4)`).
+  - Affichage immédiat des pochettes locales dès l'import (extraction asynchrone par lots + purge automatique du cache temporaire `tagmaster-dj-thumbs`).
+  - Diagnostic intégré des dépendances **`ffmpeg`** et **`yt-dlp`** au démarrage.
+- **Cascade multi-sources intelligente (`Auto`) & BPM** :
   - **Apple Music** (`US → GB → FR` + lookup catalogue artiste avec cache mémoire `artistId`)
-  - **Deezer** (API publique sans clé, pochettes `1000×1000`)
+  - **Deezer** (API publique sans clé, pochettes `1000×1000` + champ **BPM**)
   - **MusicBrainz + Cover Art Archive** (API publique, rate-limit 1 req/s)
   - **Discogs** (optionnel via `DISCOGS_TOKEN` dans `.env` pour vinyles & maxis club)
   - **YouTube & SoundCloud (`yt-dlp`)** : routage prioritaire automatique sur les versions protégées (`Live`, `Remix`, `Mashup`, `Sped Up`, `Slowed`, `Reverb`, `Nightcore`, `Chopped`, `Acoustic`, `Instrumental`) et recherche séparée à la volée.
+  - Écriture standard du **BPM** (`TBPM` en ID3v2.3/2.4, atome entier signé `tmpo` sur MP4/M4A, `BPM` sur FLAC/OGG) + édition manuelle dans la File de révision.
 - **File de révision & éditeur libre** :
   - Édition de n'importe quelle piste (même `Identifié` ou `Exporté`), lecteur audio local intégré et **Recherche rapide** avec sélecteur unifié à 7 sources (`Auto`, `Apple Music`, `Deezer`, `YouTube`, `SoundCloud`, `MusicBrainz`, `Discogs`).
   - **Sélecteur de 16 pochettes HD en ligne** + import local + **URL d'image directe** (JPG, PNG, WebP).
 - **Paroles synchronisées temps réel** : récupération automatique via **LRCLIB** (sans clé) et fallback **Genius** (optionnel via `GENIUS_API_KEY` dans `.env`, ignoré sur les pistes `Instrumental`) avec écriture ID3v2 **`SYLT` + `USLT` + fichier compagnon `.lrc`**.
-- **Persistance & résilience réseau** : sauvegarde atomique automatique dans `cache.json`, reprise de session au redémarrage et pop-up à 3 choix en cas de coupure réseau / rate-limit (**Réessayer**, **Exporter les pistes prêtes**, **Quitter (sauvegardé)**).
+- **Persistance & résilience réseau** : sauvegarde atomique sérialisée dans `cache.json`, reprise de session au redémarrage et pop-up à 3 choix en cas de coupure réseau / rate-limit (**Réessayer**, **Exporter les pistes prêtes**, **Quitter (sauvegardé)**).
 - **Détection de doublons & Comparateur audio A/B** : repérage automatique des copies (`__2`, `_1`, `(1)` et `Artiste + Titre` normalisés), comparaison côte à côte avec arrêt mutuel des lecteurs audio et arbitrage en 1 clic (**Garder A**, **Garder B**, **Garder les deux**, **Supprimer les deux**).
-- **Moteur `FFmpeg` & profils d'export matériels** (strictement non destructifs vers `Documents/Tagmaster_DJ_Export`) :
+- **Moteur `FFmpeg`, dossier d'export personnalisable & profils matériels** (strictement non destructifs, `Documents/Tagmaster_DJ_Export` par défaut ou dossier personnalisé, badge **`Exporté`** cliquable vers le Finder / Explorateur) :
   - **`Standard`** : audio `Original` (ou `MP3 320k`), pochette HD max `1000×1000`, `SYLT` + `USLT` + `.lrc`, UTF-8.
   - **`iPod`** : Passthrough MP3/M4A (conversion MP3 320k si FLAC/WAV), pochette JPEG baseline max `600×600`, Sanitizer FAT32, ID3v2.3.
   - **`PSP`** : conversion forcée MP3 CBR `320 kbps` (`44,1 kHz`, stéréo), pochette JPEG baseline max `400×400`, Sanitizer ASCII strict (Memory Stick Pro Duo / XMB), ID3v2.3 sans `.lrc`.
+- **Packaging natif & CI/CD** : installeurs macOS (`.dmg`) et Windows (`.exe` / `.msi`) construits automatiquement via GitHub Actions à chaque release.
 
 ---
 

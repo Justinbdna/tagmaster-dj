@@ -198,6 +198,8 @@ export function useTrackLibrary(
   onRestoreExportMode: (mode: ExportMode) => void,
   formatMode: ExportFormatMode = "passthrough",
   hardwareProfile: HardwareProfile = "standard",
+  customExportDir: string | null = null,
+  onRestoreExportDir?: (dir: string | null) => void,
 ) {
   const [tracks, setTracks] = useState<AudioTrackItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -224,6 +226,8 @@ export function useTrackLibrary(
   formatModeRef.current = formatMode;
   const hardwareProfileRef = useRef<HardwareProfile>(hardwareProfile);
   hardwareProfileRef.current = hardwareProfile;
+  const customExportDirRef = useRef<string | null>(customExportDir);
+  customExportDirRef.current = customExportDir;
   const batchActionRef = useRef<"lookup" | "export" | null>(batchAction);
   batchActionRef.current = batchAction;
   const isPersistingRef = useRef(false);
@@ -278,6 +282,7 @@ export function useTrackLibrary(
             version: 1,
             updatedAtMs: Date.now(),
             exportMode: current.mode,
+            exportDir: customExportDirRef.current ?? undefined,
             tracks: current.tracks,
           };
 
@@ -422,6 +427,9 @@ export function useTrackLibrary(
 
       if (restored && restored.tracks.length > 0) {
         onRestoreExportMode(restored.exportMode);
+        if (restored.exportDir && onRestoreExportDir) {
+          onRestoreExportDir(restored.exportDir);
+        }
         setTracks(restored.tracks);
         queueArtworkExtraction(restored.tracks);
         setIsResumedSession(true);
@@ -446,7 +454,7 @@ export function useTrackLibrary(
       sessionReadyRef.current = true;
       return false;
     }
-  }, [onRestoreExportMode, queueArtworkExtraction]);
+  }, [onRestoreExportDir, onRestoreExportMode, queueArtworkExtraction]);
 
   const startNewSession = useCallback(async () => {
     artworkGenerationRef.current += 1;
@@ -991,6 +999,7 @@ export function useTrackLibrary(
           mode,
           formatModeRef.current,
           hardwareProfileRef.current,
+          customExportDirRef.current,
         );
         await persistSessionNow(tracksRef.current, mode);
 
@@ -1062,7 +1071,7 @@ export function useTrackLibrary(
     }
 
     try {
-      const openedPath = await openExportDirectory();
+      const openedPath = await openExportDirectory(customExportDirRef.current);
       setNotice(`Dossier d'export ouvert : ${openedPath}`);
     } catch (err) {
       setErrorMessage(

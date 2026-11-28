@@ -285,6 +285,7 @@ mod tests {
                 source: Some(MetadataSource::AppleMusic),
                 lyrics: None,
                 synced_lyrics: None,
+                bpm: None,
             }),
             exported_path: exported_path.map(str::to_string),
             local_artwork_path: None,
@@ -305,6 +306,7 @@ mod tests {
             version: SESSION_CACHE_VERSION,
             updated_at_ms: 0,
             export_mode: ExportMode::Flat,
+            export_dir: None,
             tracks: vec![
                 make_track(
                     "track_1",
@@ -352,6 +354,7 @@ mod tests {
             version: SESSION_CACHE_VERSION,
             updated_at_ms: 1_700_000_000_000,
             export_mode: ExportMode::Dynamic,
+            export_dir: None,
             tracks: vec![make_track(
                 "track_done",
                 TrackStatus::Completed,
@@ -370,6 +373,7 @@ mod tests {
             version: SESSION_CACHE_VERSION,
             updated_at_ms: 0,
             export_mode: ExportMode::Dynamic,
+            export_dir: None,
             tracks: Vec::new(),
         };
         save_session_cache_to_path(&path, &empty_session).expect("empty save clears file");

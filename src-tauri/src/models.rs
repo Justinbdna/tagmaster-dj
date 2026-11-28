@@ -78,6 +78,8 @@ pub struct TrackMetadata {
     pub lyrics: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synced_lyrics: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -129,6 +131,8 @@ pub struct ExistingTrackTags {
     pub has_dirty_tags: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedded_artwork_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +166,8 @@ pub struct TrackCandidate {
     pub platform: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,12 +219,16 @@ pub struct ManualExportInput {
     pub format_mode: ExportFormatMode,
     #[serde(default)]
     pub hardware_profile: HardwareProfile,
+    #[serde(default)]
+    pub export_dir: Option<String>,
     pub title: String,
     pub artist: String,
     pub album_artist: Option<String>,
     pub album: Option<String>,
     pub year: Option<u32>,
     pub genre: Option<String>,
+    #[serde(default)]
+    pub bpm: Option<u16>,
     pub track_number: Option<u32>,
     pub track_total: Option<u32>,
     pub disc_number: Option<u32>,
@@ -274,6 +284,8 @@ pub struct SessionCache {
     pub version: u32,
     pub updated_at_ms: u64,
     pub export_mode: ExportMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_dir: Option<String>,
     pub tracks: Vec<AudioTrackItem>,
 }
 

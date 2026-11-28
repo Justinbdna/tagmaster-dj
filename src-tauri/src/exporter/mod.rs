@@ -16,6 +16,51 @@ use crate::tagger::sanitizer::sanitize_metadata_for_profile;
 
 pub const DEFAULT_EXPORT_DIR_NAME: &str = "Tagmaster_DJ_Export";
 
+/// Résout le dossier d'export cible : utilise le chemin personnalisé s'il est renseigné,
+/// sinon se replie sur `<Documents>/Tagmaster_DJ_Export`.
+pub fn resolve_export_root_path(
+    default_documents_dir: &Path,
+    custom_export_dir: Option<&str>,
+) -> PathBuf {
+    if let Some(custom) = custom_export_dir.map(str::trim).filter(|s| !s.is_empty()) {
+        return PathBuf::from(custom);
+    }
+    default_documents_dir.join(DEFAULT_EXPORT_DIR_NAME)
+}
+
+/// Vérifie que le dossier d'export existe (ou peut être créé) et est accessible en écriture
+/// avant de lancer un lot (utile pour un disque externe, une clé USB ou une PSP montée).
+pub fn validate_writable_export_dir(dir: &Path) -> Result<PathBuf, String> {
+    if dir.as_os_str().is_empty() {
+        return Err("Le dossier d'export spécifié est vide.".to_string());
+    }
+
+    if dir.exists() && !dir.is_dir() {
+        return Err(format!(
+            "Le chemin d'export n'est pas un dossier valide : {}",
+            dir.display()
+        ));
+    }
+
+    fs::create_dir_all(dir).map_err(|err| {
+        format!(
+            "Impossible de préparer le dossier d'export {} : {err}",
+            dir.display()
+        )
+    })?;
+
+    let probe_path = dir.join(format!(".tagmaster_write_probe_{}", std::process::id()));
+    fs::write(&probe_path, b"ok").map_err(|err| {
+        format!(
+            "Le dossier d'export {} n'est pas accessible en écriture : {err}",
+            dir.display()
+        )
+    })?;
+    let _ = fs::remove_file(&probe_path);
+
+    Ok(dir.to_path_buf())
+}
+
 /// Exporte une piste de manière strictement non destructive (profil `Standard`, mode `Passthrough`).
 pub fn export_single_track(
     source_path: &Path,
@@ -208,6 +253,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: None,
             synced_lyrics: Some("[00:05.00] Linea sincronizada".to_string()),
+            bpm: Some(124),
         };
 
         let exported_path = export_single_track(
@@ -284,6 +330,7 @@ mod tests {
             source: Some(MetadataSource::AppleMusic),
             lyrics: Some("Hello iPod".to_string()),
             synced_lyrics: Some("[00:01.00] Hello iPod".to_string()),
+            bpm: None,
         };
 
         let exported_path = export_single_track_with_profile(
@@ -316,5 +363,41 @@ mod tests {
         assert_eq!(tag.get_string(ItemKey::UnsyncLyrics), Some("Hello iPod"));
 
         let _ = fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn resolves_custom_vs_default_export_dir_and_validates_writability() {
+        let default_docs = std::env::temp_dir().join("tagmaster_fake_docs");
+        assert_eq!(
+            resolve_export_root_path(&default_docs, None),
+            default_docs.join(DEFAULT_EXPORT_DIR_NAME)
+        );
+        assert_eq!(
+            resolve_export_root_path(&default_docs, Some("   ")),
+            default_docs.join(DEFAULT_EXPORT_DIR_NAME)
+        );
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock error")
+            .as_nanos();
+        let custom_dir = std::env::temp_dir().join(format!(
+            "tagmaster_dj_custom_export_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        let resolved =
+            resolve_export_root_path(&default_docs, Some(custom_dir.to_string_lossy().as_ref()));
+        assert_eq!(resolved, custom_dir);
+
+        let validated =
+            validate_writable_export_dir(&resolved).expect("custom temp dir should be writable");
+        assert!(validated.is_dir());
+
+        let file_not_dir = validated.join("not_a_dir.txt");
+        fs::write(&file_not_dir, b"x").expect("create regular file");
+        assert!(validate_writable_export_dir(&file_not_dir).is_err());
+
+        let _ = fs::remove_dir_all(&custom_dir);
     }
 }

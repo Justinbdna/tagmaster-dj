@@ -460,6 +460,7 @@ pub fn parse_ytdlp_ndjson_lines(
             source: Some(MetadataSource::YtDlp),
             platform: Some(platform),
             duration_secs,
+            bpm: None,
         });
     }
 

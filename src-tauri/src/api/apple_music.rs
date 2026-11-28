@@ -547,6 +547,7 @@ fn itunes_track_to_candidate(
         source: Some(MetadataSource::AppleMusic),
         platform: None,
         duration_secs: None,
+        bpm: None,
     }
 }
 

@@ -5,12 +5,14 @@ import {
   Cpu,
   Eye,
   EyeOff,
+  FolderOpen,
   FolderTree,
   HelpCircle,
   KeyRound,
   Layers,
   Loader2,
   Moon,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -43,6 +45,11 @@ interface SettingsViewProps {
   onSelectGlassTint: (tint: GlassTint) => void;
   exportMode: ExportMode;
   onSelectExportMode: (mode: ExportMode) => void;
+  exportDirPath: string;
+  isCustomExportDir: boolean;
+  onPickExportDir: () => void;
+  onResetExportDir: () => void;
+  onOpenExportFolder: () => void;
   formatMode: ExportFormatMode;
   onSelectFormatMode: (mode: ExportFormatMode) => void;
   hardwareProfile: HardwareProfile;
@@ -91,6 +98,11 @@ export function SettingsView({
   onSelectGlassTint,
   exportMode,
   onSelectExportMode,
+  exportDirPath,
+  isCustomExportDir,
+  onPickExportDir,
+  onResetExportDir,
+  onOpenExportFolder,
   formatMode,
   onSelectFormatMode,
   hardwareProfile,
@@ -357,14 +369,41 @@ export function SettingsView({
 
       {/* Export Architecture Section */}
       <div className="rounded-[18px] border border-[var(--content-border)] bg-[var(--content-card-bg)] p-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[14px] font-semibold text-primary">
             <ShieldCheck className="text-semantic-success h-4 w-4" />
             <h3>Type d&apos;export</h3>
           </div>
-          <code className="text-semantic-info rounded-md bg-[var(--content-bg)] px-2 py-0.5 text-[11px]">
-            Documents/Tagmaster_DJ_Export
-          </code>
+          <div className="flex min-w-0 max-w-full items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onOpenExportFolder}
+              title={`Ouvrir le dossier d'export : ${exportDirPath}`}
+              className="text-semantic-info max-w-[260px] cursor-pointer truncate rounded-md border border-[var(--content-border)] bg-[var(--content-bg)] px-2 py-0.5 font-mono text-[11px] transition-colors hover:border-sky-400/50 hover:bg-[var(--content-card-hover)] sm:max-w-[340px]"
+            >
+              {exportDirPath}
+            </button>
+            <button
+              type="button"
+              onClick={onPickExportDir}
+              title="Choisir un dossier de destination (disque externe, clé USB, PSP…)"
+              className="liquid-glass-pill flex shrink-0 cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium text-primary"
+            >
+              <FolderOpen className="h-3 w-3 text-sky-400" />
+              <span>Changer…</span>
+            </button>
+            {isCustomExportDir && (
+              <button
+                type="button"
+                onClick={onResetExportDir}
+                title="Réinitialiser vers Documents/Tagmaster_DJ_Export"
+                className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-[var(--content-border)] bg-[var(--content-bg)] px-2.5 py-1 text-[11px] font-medium text-secondary transition-colors hover:bg-[var(--content-card-hover)] hover:text-primary"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>Par défaut</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="mt-3 grid gap-2.5 md:grid-cols-2">

@@ -90,12 +90,24 @@ pub fn is_network_or_rate_limit_error(message: &str) -> bool {
     PATTERNS.iter().any(|p| lower.contains(p))
 }
 
-fn resolve_export_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn resolve_export_root(
+    app: &tauri::AppHandle,
+    custom_export_dir: Option<&str>,
+) -> Result<PathBuf, String> {
     let documents_dir = app
         .path()
         .document_dir()
         .map_err(|err| format!("Impossible de résoudre le dossier Documents : {err}"))?;
-    Ok(documents_dir.join(exporter::DEFAULT_EXPORT_DIR_NAME))
+    Ok(exporter::resolve_export_root_path(
+        &documents_dir,
+        custom_export_dir,
+    ))
+}
+
+#[tauri::command]
+fn get_default_export_directory(app: tauri::AppHandle) -> Result<String, String> {
+    let default_root = resolve_export_root(&app, None)?;
+    Ok(default_root.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -141,8 +153,11 @@ async fn lookup_track_metadata(
 }
 
 #[tauri::command]
-async fn open_export_directory(app: tauri::AppHandle) -> Result<String, String> {
-    let export_root = resolve_export_root(&app)?;
+async fn open_export_directory(
+    app: tauri::AppHandle,
+    export_dir: Option<String>,
+) -> Result<String, String> {
+    let export_root = resolve_export_root(&app, export_dir.as_deref())?;
     std::fs::create_dir_all(&export_root).map_err(|err| {
         format!(
             "Impossible de préparer le dossier d'export {} : {err}",
@@ -165,16 +180,12 @@ async fn run_batch_pipeline(
     export_mode: ExportMode,
     format_mode: Option<ExportFormatMode>,
     hardware_profile: Option<HardwareProfile>,
+    export_dir: Option<String>,
 ) -> Result<BatchSummary, String> {
     let format_mode = format_mode.unwrap_or_default();
     let hardware_profile = hardware_profile.unwrap_or_default();
-    let export_root = resolve_export_root(&app)?;
-    std::fs::create_dir_all(&export_root).map_err(|err| {
-        format!(
-            "Impossible de créer le dossier d'export {} : {err}",
-            export_root.display()
-        )
-    })?;
+    let export_root = resolve_export_root(&app, export_dir.as_deref())?;
+    let export_root = exporter::validate_writable_export_dir(&export_root)?;
 
     let total = tracks.len();
     if total == 0 {
@@ -264,7 +275,10 @@ async fn run_batch_pipeline(
 
                     match api::resolve_track_metadata(&source_path, &existing, Some(&app)).await {
                         Ok(lookup) => match (lookup.status, lookup.metadata) {
-                            (LookupStatus::Matched, Some(found_meta)) => {
+                            (LookupStatus::Matched, Some(mut found_meta)) => {
+                                if found_meta.bpm.is_none() {
+                                    found_meta.bpm = existing.bpm;
+                                }
                                 let mut st = state.lock().await;
                                 st.consecutive_network_errors = 0;
                                 found_meta
@@ -554,13 +568,8 @@ async fn export_manual_track(
         return Err("Le titre et l'artiste sont obligatoires pour exporter.".to_string());
     }
 
-    let export_root = resolve_export_root(&app)?;
-    std::fs::create_dir_all(&export_root).map_err(|err| {
-        format!(
-            "Impossible de créer le dossier d'export {} : {err}",
-            export_root.display()
-        )
-    })?;
+    let export_root = resolve_export_root(&app, input.export_dir.as_deref())?;
+    let export_root = exporter::validate_writable_export_dir(&export_root)?;
 
     let mut metadata = normalize_track_metadata(RawMetadataInput {
         title,
@@ -597,6 +606,7 @@ async fn export_manual_track(
         is_compilation: input.is_compilation.unwrap_or(false),
         source: input.source.unwrap_or(MetadataSource::Manual),
     });
+    metadata.bpm = input.bpm.filter(|&b| b > 0);
 
     let artwork = if let Some(local_path) = input
         .local_artwork_path
@@ -1204,6 +1214,7 @@ pub fn run() {
             scan_audio_paths,
             read_track_tags,
             lookup_track_metadata,
+            get_default_export_directory,
             open_export_directory,
             reveal_in_file_manager,
             extract_embedded_artworks,
